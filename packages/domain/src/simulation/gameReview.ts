@@ -178,6 +178,11 @@ export class ReplayNarrator {
         return `Mueve ${v.amount} ${energyEs(String(v.energy_type))} de ${mine(Number(v.from_in_play_idx))} a ${mine(Number(v.to_in_play_idx))}`
       case 'Heal':
         return `Cura ${v.amount} a ${mine(Number(v.in_play_idx))}${v.cure_status ? ' y sus estados' : ''}`
+      // Misty and Sweet Honey since deckgym 97b8787 (D-031): the Pokémon is chosen first, the coins come after.
+      case 'FlipUntilTailsThenAttach':
+        return `Lanza monedas hasta sacar cruz (${v.max_heads} caras como máximo) y une 1 energía ${energyEs(String(v.energy_type))} a ${mine(Number(v.in_play_idx))} por cada cara`
+      case 'FlipUntilTailsThenHeal':
+        return `Lanza monedas hasta sacar cruz (${v.max_heads} caras como máximo) y cura ${v.amount_per_heads} a ${mine(Number(v.in_play_idx))} por cada cara`
       case 'ApplyDamage': {
         const targets = (v.targets as [number, number, number][] | undefined) ?? []
         return targets

@@ -32,6 +32,22 @@ const POISON_BURN: &str = "Energy: Fire, Darkness\n2 Blacephalon ex B2 23\n2 Hea
 /// so its hits on Mewtwo meet that Weakness through its second type. Built for the golden games, with no list behind it.
 const MEWTWO_C1: &str = "Energy: Psychic, Fighting\n2 Mega Mewtwo X ex C1 56\n2 Riolu A2 91\n2 Mega Lucario ex B3 81\n1 Lucario A2 92\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Sabrina A1 225\n1 Cyrus A2 150\n2 Giant Cape A2 147\n1 Training Area B2 153\n2 X Speed P-A 2\n";
 const GRENINJA_C1: &str = "Energy: Water, Darkness\n2 Froakie C1 40\n2 Frogadier C1 41\n2 Mega Greninja ex C1 42\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Rare Candy A3 144\n1 Cyrus A2 150\n2 Giant Cape A2 147\n1 Sabrina A1 225\n2 Lucky Ice Pop B2 145\n";
+/// deckgym 97b8787 (12/11/2026, D-031): Misty and Sweet Honey choose their Pokémon before the coins (two new choices,
+/// `FlipUntilTailsThenAttach` and `FlipUntilTailsThenHeal`), and Frogadier offers Sudden Duplication on evolving, with
+/// Starting Plains in play. Built for the golden games, with no list behind it.
+const MISTY_HONEY: &str = "Energy: Water
+2 Froakie C1 40
+2 Frogadier C1 41
+2 Greninja A1 89
+2 Suicune ex A4a 20
+2 Misty A1 220
+2 Sweet Honey C1 119
+2 Professor's Research P-A 7
+2 Poké Ball P-A 5
+2 Copycat B1 225
+1 Cyrus A2 150
+1 Starting Plains B2 154
+";
 const VENUSAUR: &str = "Energy: Grass\n1 Bulbasaur A1 1\n2 Ivysaur B1a 2\n2 Mega Venusaur ex B1a 4\n2 Professor's Research P-A 7\n2 Copycat B1 225\n2 Quick-Grow Extract B1a 67\n2 Lucky Ice Pop B2 145\n2 Heavy Helmet B1 219\n1 Lillie A3 155\n1 Pokémon Center Lady A2b 70\n1 Cyrus A2 150\n1 Field Blower B3 147\n1 Repel A3a 64\n";
 
 /// Every bot, each against the random one, from both sides; the slow ones with fewer games.
@@ -85,6 +101,18 @@ fn cases() -> Vec<Value> {
     for (deck_a, deck_b, players, seed) in [
         (MEWTWO_C1, GRENINJA_C1, ["e2", "g2"], 4220),
         (GRENINJA_C1, MEWTWO_C1, ["f2", "g2"], 4221),
+    ] {
+        cases.push(json!({
+            "command": "simulate",
+            "job": { "deckA": deck_a, "deckB": deck_b, "players": players, "games": 2, "seed": seed, "threads": 1, "perGame": true },
+        }));
+    }
+    // Misty and Sweet Honey's choices since deckgym 97b8787 (D-031), made by e2, f2 and g2 in turn: a change in how
+    // deckgym or the bots handle them shows here (the engine change of 12/11/2026).
+    for (deck_a, deck_b, players, seed) in [
+        (MISTY_HONEY, DEDENNE, ["e2", "g2"], 4224),
+        (DEDENNE, MISTY_HONEY, ["g2", "f2"], 4225),
+        (MISTY_HONEY, DEDENNE, ["g2", "e2"], 4226),
     ] {
         cases.push(json!({
             "command": "simulate",

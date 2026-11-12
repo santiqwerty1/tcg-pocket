@@ -141,4 +141,21 @@ describe('board audit (12/10/2026): answering by touch', () => {
     )
     expect(optionsAt(dragonair, NONE, { player: 0, index: 0 })).toHaveLength(2)
   })
+
+  it('Misty and Sweet Honey choose the Pokémon by touch before the coins (deckgym 97b8787, D-031)', () => {
+    const misty = [
+      classify({ FlipUntilTailsThenAttach: { in_play_idx: 0, energy_type: 'Water', max_heads: 5 } }, 0),
+      classify({ FlipUntilTailsThenAttach: { in_play_idx: 2, energy_type: 'Water', max_heads: 5 } }, 1),
+    ]
+    expect(isPickDecision(misty)).toBe(true)
+    // Under «Opciones», with the energy to attach, as Misty's Attach was before 97b8787.
+    expect(misty.map((action) => action.kind)).toEqual(['attach', 'attach'])
+    expect(pickLeavesOptions(misty)).toBe(false)
+    expect(targetsOf(misty, NONE)).toEqual([
+      { player: 0, index: 0 },
+      { player: 0, index: 2 },
+    ])
+    const honey = [classify({ FlipUntilTailsThenHeal: { in_play_idx: 1, amount_per_heads: 20, max_heads: 8 } }, 0)]
+    expect(optionsAt(honey, NONE, { player: 0, index: 1 }).map((action) => action.i)).toEqual([0])
+  })
 })
