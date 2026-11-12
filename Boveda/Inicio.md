@@ -32,13 +32,13 @@ _Recuentos al 2026-11-12 (generados; no editar a mano)._
 | Tipo | Total | Por estado |
 | --- | --- | --- |
 | decision | 32 | vigente 32 |
-| hallazgo | 32 | abierto 5 · resuelto 27 |
-| pregunta | 14 | cerrada 8 · pendiente 1 · respondida 5 |
-| riesgo | 13 | abierto 10 · resuelto 3 |
+| hallazgo | 33 | abierto 6 · resuelto 27 |
+| pregunta | 15 | cerrada 8 · pendiente 2 · respondida 5 |
+| riesgo | 14 | abierto 11 · resuelto 3 |
 | supuesto | 3 | refutado 1 · verificado 2 |
 | tarea | 25 | en_curso 5 · hecho 18 · parcial 1 · pendiente 1 |
 
-**Para revisar:** nada. **Abiertas:** 23 (prioridad 4–5: P-014).
+**Para revisar:** P-015. **Abiertas:** 26 (prioridad 4–5: P-014).
 <!-- /posta:recuentos -->
 
 ## Fichas

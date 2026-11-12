@@ -5,10 +5,13 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-11-12 desde la etiqueta `v1.0.0` (412 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-11-12 desde la etiqueta `v1.0.0` (428 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- Misty and Sweet Honey's new choices in Spanish (D-031) `11d7cc1`
+- the app on ca13408 — DEFAULT_ENGINE_REV, About, LICENCIAS, OPERACION and the decisions (D-031) `0ca1c6f`
+- the engine moves to next/97b8787 at ca13408 — upstream's rule fixes of 2/11 (D-031) (#442, #440, #441) `59638e2`
 - Cupón ★★ counts the ★★ tickets of guaranteedTickets (pz/luck) — v1 unknown, v2 its count, none held 0 `6160fcc`
 - a sharper luck verdict, PROMO 2026 coupon events, bookmarklet without «javascript:» (#172) `e977b1f`
 - Cupón ★★ — each row's headline is the share that decides its place; both shares in the line `1aac65c`
@@ -85,6 +88,9 @@ _Borrador generado al 2026-11-12 desde la etiqueta `v1.0.0` (412 commits). Escri
 
 ### Corregido
 
+- a raw transaction whose ROLLBACK fails destroys its connection (infra-egress follow-up) (#180) `1b86aa4`
+- Misty's choice under «Unir energía», and clearer labels for both — self-review (D-031) `862b9d2`
+- the differential reads engine-cli's error and FIXED needs a declared one — self-review (D-031) (#442, #441) `a1b3256`
 - review of #176 — the C1 migration as one DO block, so a failure reports its real error `7c1f7f6`
 - review of #176 — the C1 migration in an explicit transaction, so the ranks' lock covers its UPDATE under prisma migrate deploy `aaa742a`
 - the ranked season C1 on its official dates, 1/12 to 15/12/2026 (Buenos Aires days) `5075ace`
@@ -273,6 +279,9 @@ _Borrador generado al 2026-11-12 desde la etiqueta `v1.0.0` (412 commits). Escri
 
 ### Cambiado
 
+- the claim's job update returns only its id (infra-egress) `e59f9f6`
+- read jobs without their params in the queue and the summaries (infra-egress) `14f81f2`
+- read only the head of the last sync in the minute check (infra-egress) (#103) `1341c7b`
 - the ★★ coupon count goes through an adapter for #172's field; payload, snapshot and bookmarklet as on main `4e14a73`
 - g 1.1 under 3× e2 again — each attack's mechanic once, overcharge only for attacks that scale, no attack check where the Active cannot attack (T-021) `d87ea1f`
 - format backup schema `0c21628`
@@ -281,6 +290,8 @@ _Borrador generado al 2026-11-12 desde la etiqueta `v1.0.0` (412 commits). Escri
 
 ### Documentado
 
+- three navigable mock-ups for the UI renewal (#182) `fc3223b`
+- 3/11–12/11 — #176 and #177, D-032 approved (the «Evento» mode says it), the mission decks, the engine move started (D-032, D-031, T-023, T-025) `a8496eb`
 - specification for the UI renewal mock-ups `ea5faac`
 - collection export of 2026-11-11 as a new fixture `c6b19a7`
 - 30/10–3/11 — promo packs, pokemon-zone phase 1 and the ★★ coupon; fold their decisions (T-025, D-032, T-023) (#174) `db3bb93`
@@ -384,6 +395,10 @@ _Borrador generado al 2026-11-12 desde la etiqueta `v1.0.0` (412 commits). Escri
 
 ### Pruebas
 
+- the negative cases check that no error reaches release, and the decision (infra-egress follow-up) `b5df49d`
+- the decks of the differential of 12/11, as a fixture (D-031) `87b8a13`
+- the Misty and Sweet Honey golden games played by e2, f2 and g2 in turn — self-review (D-031) `bd5b83a`
+- the differential's list for upstream 97b8787 on 77e0617, and FIXED pairings (D-031) (#440, #441, #442) `2a73c80`
 - the ★★ coupon's last minute checked by key, not by position `2c7236f`
 - the promo page fits a 375 px phone `2bbe322`
 - promo packs — the best coupon print in any position, and the last copy by copies `f3de9cf`
@@ -423,6 +438,7 @@ _Borrador generado al 2026-11-12 desde la etiqueta `v1.0.0` (412 commits). Escri
 
 ### Mantenimiento
 
+- worker 0.3.16 with engine-cli 0.3.18 on ca13408, so the workers update themselves (D-031) `7a26b43`
 - Bump zod from 4.6.5 to 4.6.6 in /apps/web `e4747e5`
 - zod 4.6.6 in the API and the domain too, and the lockfile (the bump of #162 left them at 4.6.5) `3fbaf55`
 - worker 0.3.15 with engine-cli 0.3.17 on 77e0617, so the workers update themselves (D-031, T-023) `c2c1234`
@@ -439,8 +455,4 @@ _Borrador generado al 2026-11-12 desde la etiqueta `v1.0.0` (412 commits). Escri
 ### Otros
 
 - docs+test: decisions of the self-review, labSimulable in API.md, the Bot select in the screens (D-029) `43b7f6e`
-
-### Decidido
-
-- 2026-11-12 — D-032 aprobada por Santiago: Santiago la aprobó en el chat el 12/11/2026, después de ver en pokemon-zone que entre el 6/11 y el 12/11 el juego sumó 15 partidas versus (y 0 clasificatorias) con el evento de emblema, y 10 individuales con el evento de promo contra la CPU.
 <!-- /posta:cambios -->
