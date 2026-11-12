@@ -150,11 +150,11 @@ describe('Claude analiza una partida (Fase 29)', () => {
     const at = state(2, 0, ['B1 033', 'B3b 001'])
     const misty = { FlipUntilTailsThenAttach: { in_play_idx: 0, energy_type: 'Water', max_heads: 5 } }
     expect(narrator.describe(misty, at, 0, 'FlipUntilTailsThenAttach(0, Water, max:5)')).toBe(
-      'Une 1 energía Agua a Torchic (activo) por cada cara hasta sacar cruz (máximo 5)',
+      'Lanza monedas hasta sacar cruz (5 caras como máximo) y une 1 energía Agua a Torchic (activo) por cada cara',
     )
     const honey = { FlipUntilTailsThenHeal: { in_play_idx: 0, amount_per_heads: 20, max_heads: 8 } }
     expect(narrator.describe(honey, at, 1, 'FlipUntilTailsThenHeal(0, 20, max:8)')).toBe(
-      'Cura 20 a Caterpie (activo) por cada cara hasta sacar cruz (máximo 8)',
+      'Lanza monedas hasta sacar cruz (8 caras como máximo) y cura 20 a Caterpie (activo) por cada cara',
     )
   })
 })

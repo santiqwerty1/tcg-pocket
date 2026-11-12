@@ -98,6 +98,9 @@ export function classifyAction(i: number, action: unknown, text: string, actor: 
       const target = attachments.length === 1 ? slot(attachments[0]?.[2]) : null
       return { ...base, kind: 'attach', source: v.is_turn_energy ? { kind: 'energy' } : none, target }
     }
+    // Misty since deckgym 97b8787 (D-031): the Pokémon first, the coins after. Still energy to attach, as it was.
+    case 'FlipUntilTailsThenAttach':
+      return { ...base, kind: 'attach', source: none, target: slot(v.in_play_idx) }
     case 'AttachTool':
       // deckgym plays a tool in two steps: «Play» takes it out of the hand, and then it asks where it goes. By then
       // the card is not in the hand to touch, so the choice is a pick: touching the Pokémon attaches it.

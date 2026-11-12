@@ -48,7 +48,7 @@ describe('replay reader', () => {
         step.actor,
         'FlipUntilTailsThenAttach(0, Water, max:5)',
       ),
-    ).toBe('Une 1 energía Agua a Treecko (activo) por cada cara hasta sacar cruz (máximo 5)')
+    ).toBe('Lanza monedas hasta sacar cruz (5 caras como máximo) y une 1 energía Agua a Treecko (activo) por cada cara')
     expect(
       reader.describe(
         { FlipUntilTailsThenHeal: { in_play_idx: 0, amount_per_heads: 20, max_heads: 8 } },
@@ -56,7 +56,7 @@ describe('replay reader', () => {
         step.actor,
         'FlipUntilTailsThenHeal(0, 20, max:8)',
       ),
-    ).toBe('Cura 20 a Treecko (activo) por cada cara hasta sacar cruz (máximo 8)')
+    ).toBe('Lanza monedas hasta sacar cruz (8 caras como máximo) y cura 20 a Treecko (activo) por cada cara')
   })
 
   it('falls back to the engine name, and translates unknown actions by text', () => {

@@ -148,6 +148,8 @@ describe('board audit (12/10/2026): answering by touch', () => {
       classify({ FlipUntilTailsThenAttach: { in_play_idx: 2, energy_type: 'Water', max_heads: 5 } }, 1),
     ]
     expect(isPickDecision(misty)).toBe(true)
+    // Under «Opciones», with the energy to attach, as Misty's Attach was before 97b8787.
+    expect(misty.map((action) => action.kind)).toEqual(['attach', 'attach'])
     expect(pickLeavesOptions(misty)).toBe(false)
     expect(targetsOf(misty, NONE)).toEqual([
       { player: 0, index: 0 },
