@@ -31,7 +31,7 @@ import type pg from 'pg'
 import type { CatalogSync } from '../generated/prisma/client.js'
 import type { CatalogSyncStatus } from '../generated/prisma/enums.js'
 import { PrismaService } from '../prisma/prisma.service.js'
-import { deleteNotIn, insertMany, upsertMany } from '../prisma/sql.js'
+import { deleteNotIn, insertMany, rollback, upsertMany } from '../prisma/sql.js'
 
 /** Printed evolution exceptions (DECISIONES 0.15). */
 const EVOLUTION_ALIASES: ReadonlyArray<{ nameEn: string; countsAs: string }> = [
@@ -85,6 +85,7 @@ export class CatalogRepository {
    */
   async replaceCatalog(catalog: Catalog, outcome: SyncOutcome): Promise<ReplaceResult> {
     const client = await this.prisma.pool.connect()
+    let rollbackError: Error | undefined
     try {
       await client.query('BEGIN')
 
@@ -337,10 +338,11 @@ export class CatalogRepository {
       await client.query('COMMIT')
       return { deleted }
     } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined)
+      rollbackError = await rollback(client)
       throw error
     } finally {
-      client.release()
+      // With the error the pool destroys the connection: it never goes back inside the transaction, with its locks.
+      client.release(rollbackError)
     }
   }
 
