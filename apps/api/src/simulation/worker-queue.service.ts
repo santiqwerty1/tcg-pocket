@@ -330,6 +330,8 @@ export class WorkerQueueService {
       await this.prisma.simulationJob.update({
         where: { id: job.id },
         data: { status: 'running', startedAt: new Date() },
+        // Without it the update returns the whole row, `params` included (infra-egress).
+        select: { id: true },
       })
     }
     const more = hello.batch && isPairing(job.kind) ? await this.claimMore(hello, first) : []
