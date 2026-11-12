@@ -144,4 +144,17 @@ describe('Claude analiza una partida (Fase 29)', () => {
       'Evoluciona Torchic (activo) a un Pokémon de tipo Fuego al azar del mazo',
     )
   })
+
+  it('tells Misty and Sweet Honey, which choose the Pokémon before the coins since deckgym 97b8787 (D-031)', () => {
+    const narrator = new ReplayNarrator(REPLAY, NAMES)
+    const at = state(2, 0, ['B1 033', 'B3b 001'])
+    const misty = { FlipUntilTailsThenAttach: { in_play_idx: 0, energy_type: 'Water', max_heads: 5 } }
+    expect(narrator.describe(misty, at, 0, 'FlipUntilTailsThenAttach(0, Water, max:5)')).toBe(
+      'Une 1 energía Agua a Torchic (activo) por cada cara hasta sacar cruz (máximo 5)',
+    )
+    const honey = { FlipUntilTailsThenHeal: { in_play_idx: 0, amount_per_heads: 20, max_heads: 8 } }
+    expect(narrator.describe(honey, at, 1, 'FlipUntilTailsThenHeal(0, 20, max:8)')).toBe(
+      'Cura 20 a Caterpie (activo) por cada cara hasta sacar cruz (máximo 8)',
+    )
+  })
 })

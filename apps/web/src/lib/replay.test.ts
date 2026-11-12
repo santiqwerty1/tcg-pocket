@@ -40,6 +40,23 @@ describe('replay reader', () => {
         'EvolveIntoRandomFromDeck(0, Grass)',
       ),
     ).toBe('Evoluciona Treecko (activo) a un Pokémon de tipo Planta al azar del mazo')
+    // Misty and Sweet Honey since deckgym 97b8787 (D-031): the Pokémon first, then the coins.
+    expect(
+      reader.describe(
+        { FlipUntilTailsThenAttach: { in_play_idx: 0, energy_type: 'Water', max_heads: 5 } },
+        step.state,
+        step.actor,
+        'FlipUntilTailsThenAttach(0, Water, max:5)',
+      ),
+    ).toBe('Une 1 energía Agua a Treecko (activo) por cada cara hasta sacar cruz (máximo 5)')
+    expect(
+      reader.describe(
+        { FlipUntilTailsThenHeal: { in_play_idx: 0, amount_per_heads: 20, max_heads: 8 } },
+        step.state,
+        step.actor,
+        'FlipUntilTailsThenHeal(0, 20, max:8)',
+      ),
+    ).toBe('Cura 20 a Treecko (activo) por cada cara hasta sacar cruz (máximo 8)')
   })
 
   it('falls back to the engine name, and translates unknown actions by text', () => {
