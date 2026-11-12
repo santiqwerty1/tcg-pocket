@@ -97,7 +97,8 @@ export class CatalogService implements OnModuleInit {
     if (this.catchingUp) return false
     this.catchingUp = true
     try {
-      const latest = await this.repository.latestAppliedSync()
+      // Only the head: the whole row is ~190 KB and this runs every minute (infra-egress).
+      const latest = await this.repository.latestAppliedSyncHead()
       if (!latest || latest.id === this.loadedSync?.id) return false
       try {
         await this.reload()
@@ -119,7 +120,7 @@ export class CatalogService implements OnModuleInit {
    * also while the memory is behind (repeating the memory's would undo a CLI's sync).
    */
   async appliedCommit(): Promise<string | null> {
-    return (await this.repository.latestAppliedSync())?.commitSha ?? this.trackerCommit
+    return (await this.repository.latestAppliedSyncHead())?.commitSha ?? this.trackerCommit
   }
 
   /** The sync in memory against the last one applied in the database (the `catalog_memory` alert). */
@@ -128,7 +129,7 @@ export class CatalogService implements OnModuleInit {
     latest: { id: number; commitSha: string; appliedAt: Date | null } | null
     failure: { at: Date; message: string } | null
   }> {
-    const latest = await this.repository.latestAppliedSync()
+    const latest = await this.repository.latestAppliedSyncHead()
     return {
       loaded: this.loadedSync ? { id: this.loadedSync.id, commitSha: this.loadedSync.commitSha } : null,
       latest: latest ? { id: latest.id, commitSha: latest.commitSha, appliedAt: latest.appliedAt } : null,
@@ -160,7 +161,22 @@ export class CatalogService implements OnModuleInit {
 
   async status(): Promise<CatalogStatus> {
     const catalog = this.index?.catalog ?? null
-    const latest = await this.prisma.catalogSync.findFirst({ orderBy: { id: 'desc' } })
+    // Without the missions and the file hashes, which the status does not show (the page asks for it every 3 s while a
+    // sync runs; infra-egress).
+    const latest = await this.prisma.catalogSync.findFirst({
+      orderBy: { id: 'desc' },
+      select: {
+        id: true,
+        status: true,
+        source: true,
+        commitSha: true,
+        engineRev: true,
+        fetchedAt: true,
+        appliedAt: true,
+        report: true,
+        error: true,
+      },
+    })
     return {
       loaded: catalog !== null,
       trackerCommit: catalog?.trackerCommit ?? null,
