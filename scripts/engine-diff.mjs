@@ -1,9 +1,9 @@
 // Differential test of two engine-cli builds (D-031: before updating deckgym, our fork): every deck A against every
 // deck B, the same job and seed, the same bot on both sides (e2 by default), with perGame. A pairing without any of the
 // cards the change touches must give byte for byte the same result; the ones that differ are listed with the touched
-// cards of each side, and the ones without any are «UNEXPLAINED». One that only the old engine fails, with a touched
-// card, is «FIXED» (its error is listed, to check it is the one the change fixes); any other failure is «FAILED»
-// (docs/OPERACION.md, «El motor: nuestra copia de deckgym»).
+// cards of each side, and the ones without any are «UNEXPLAINED». One that only the old engine fails, with one of the
+// errors the change fixes (FIXES) and the card it needs, is «FIXED»; any other failure is «FAILED» (docs/OPERACION.md,
+// «El motor: nuestra copia de deckgym»).
 // Usage: node scripts/engine-diff.mjs <old engine-cli> <new engine-cli> <decks.jsonl> <out dir> [games] [concurrency]
 //   [seed base] [bot]
 // Pairing i plays with seed `base × (i + 1)` (1.000.003 by default). Game g of a job uses splitmix64(seed ^ splitmix64(g)),
@@ -66,6 +66,12 @@ const AFFECTED = [
   card('Starting Plains'),
 ]
 const affected = (text) => AFFECTED.filter((pattern) => pattern.test(text)).map((p) => p.source)
+// The engine errors the change fixes, each with the card every game that hits it has: a pairing that only the old
+// engine fails, with that card on either side and that error, is «FIXED». Edit it with AFFECTED.
+const FIXES = [
+  // #442: e2 and g2 forecast the Ability offered by a Pokémon knocked out while evolving, and panicked.
+  { card: card('Starting Plains'), error: /Pokemon should be there if using ability/ },
+]
 
 function run(engine, job, name) {
   const jobFile = join(outDir, `${name}.job.json`)
@@ -74,14 +80,21 @@ function run(engine, job, name) {
   rmSync(resultFile, { force: true })
   writeFileSync(jobFile, JSON.stringify(job))
   return new Promise((resolve) => {
-    const child = spawn(engine, ['simulate', jobFile, resultFile], { stdio: ['ignore', 'ignore', 'pipe'] })
+    // engine-cli says what failed on stdout (`{"error": …, "code": …}`) and how it ended on stderr.
+    const child = spawn(engine, ['simulate', jobFile, resultFile], { stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
     let stderr = ''
+    child.stdout.on('data', (chunk) => {
+      stdout = (stdout + chunk).slice(-4000)
+    })
     child.stderr.on('data', (chunk) => {
       stderr = (stderr + chunk).slice(-2000)
     })
     child.on('close', (code) => {
       if (code !== 0) {
-        resolve({ code, result: null, stderr: `exit ${code}: ${stderr.trim().split('\n').slice(-3).join(' | ')}` })
+        const error = engineError(stdout)
+        const ending = stderr.trim().split('\n').slice(-3).join(' | ')
+        resolve({ code, result: null, stderr: `exit ${code}: ${error ? `${error} | ` : ''}${ending}` })
         return
       }
       try {
@@ -92,6 +105,17 @@ function run(engine, job, name) {
       }
     })
   })
+}
+
+/** The `error` of the last JSON line engine-cli printed on stdout, if any. */
+function engineError(stdout) {
+  for (const line of stdout.trim().split('\n').reverse()) {
+    try {
+      const parsed = JSON.parse(line)
+      if (typeof parsed?.error === 'string') return parsed.error
+    } catch {}
+  }
+  return null
 }
 
 /** What has to be equal between the two engines: everything but the time and the engine's own names. */
@@ -118,7 +142,7 @@ const tasksWithout = tasks.filter(
 
 const differing = []
 const failed = []
-/** Failed in the old engine only, with a touched card: what the change fixes (#442 on 97b8787: a panic of e2 and g2). */
+/** Failed in the old engine only, with an error of FIXES and its card: what the change fixes. */
 const fixed = []
 let done = 0
 async function worker() {
@@ -139,8 +163,13 @@ async function worker() {
         old: before.stderr ?? null,
         new: after.stderr ?? null,
       }
-      const touched = failure.affectedA.length > 0 || failure.affectedB.length > 0
-      if (!before.result && after.result && touched) fixed.push(failure)
+      const fix =
+        !before.result && after.result
+          ? FIXES.find(
+              ({ card, error }) => (card.test(task.a.text) || card.test(task.b.text)) && error.test(failure.old ?? ''),
+            )
+          : undefined
+      if (fix) fixed.push({ ...failure, fix: fix.error.source })
       else failed.push(failure)
     } else if (comparable(before.result) !== comparable(after.result)) {
       differing.push({
@@ -175,5 +204,5 @@ for (const d of unexplained) console.log('UNEXPLAINED', JSON.stringify(d))
 for (const f of fixed) console.log('FIXED', JSON.stringify(f))
 for (const f of failed) console.log('FAILED', JSON.stringify(f))
 // A pairing left unexplained or failed fails the run, so a script that calls it stops there. One that only the old
-// engine failed, with a touched card, is the change fixing it: listed as FIXED, to read its error, and not a failure.
+// engine failed with an error of FIXES is the change fixing it: listed as FIXED, with its error, and not a failure.
 if (unexplained.length > 0 || failed.length > 0) process.exitCode = 1
