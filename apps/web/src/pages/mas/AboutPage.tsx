@@ -58,7 +58,7 @@ export function AboutPage() {
             <a className="underline" href="https://github.com/bcollazo/deckgym-core" target="_blank" rel="noreferrer">
               bcollazo/deckgym-core
             </a>{' '}
-            (AGPL-3.0, commit <code className="font-mono">77e0617</code>), sobre el commit 7aa4ef0 de upstream, con C1
+            (AGPL-3.0, commit <code className="font-mono">ca13408</code>), sobre el commit 97b8787 de upstream, con C1
             «Dual Fusion», y con lo que upstream todavía no tiene: funciones para los bots y una evaluación más rápida,
             con las mismas partidas. Va compilado en los paquetes del worker y, para jugar en el navegador, en
             WebAssembly; sus fuentes, con la misma licencia, son las del{' '}
