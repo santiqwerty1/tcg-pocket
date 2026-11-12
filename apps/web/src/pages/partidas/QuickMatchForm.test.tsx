@@ -307,6 +307,18 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     expect(within(form).queryByRole('group', { name: '¿Cambiaste de rango?' })).toBeNull()
   })
 
+  it('D-032: «Evento» says it is only an emblem event against people; the other modes say nothing', async () => {
+    const user = userEvent.setup()
+    renderAt('/partidas')
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    const hint = 'Solo eventos de emblema contra personas. Los eventos contra la CPU no se registran.'
+    expect(within(form).queryByText(hint)).toBeNull()
+    await user.click(within(form).getByRole('button', { name: 'Evento' }))
+    expect(within(form).getByText(hint)).toBeVisible()
+    await user.click(within(form).getByRole('button', { name: 'Amigo' }))
+    expect(within(form).queryByText(hint)).toBeNull()
+  })
+
   it('logs a match in four taps from the home screen, with the last deck and mode preselected', async () => {
     const user = userEvent.setup()
     const router = renderAt('/')

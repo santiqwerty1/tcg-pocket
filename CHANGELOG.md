@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-11-03 desde la etiqueta `v1.0.0` (406 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-11-12 desde la etiqueta `v1.0.0` (412 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -85,6 +85,9 @@ _Borrador generado al 2026-11-03 desde la etiqueta `v1.0.0` (406 commits). Escri
 
 ### Corregido
 
+- review of #176 — the C1 migration as one DO block, so a failure reports its real error `7c1f7f6`
+- review of #176 — the C1 migration in an explicit transaction, so the ranks' lock covers its UPDATE under prisma migrate deploy `aaa742a`
+- the ranked season C1 on its official dates, 1/12 to 15/12/2026 (Buenos Aires days) `5075ace`
 - Cupón ★★ follow-up — an expired anniversary coupon apart from the count; ties by limited packs, then the newest expansion; a wording nit `30dbd0f`
 - Cupón ★★ — the count from the adapter; review texts: singular for one deck goal, «la mayor parte» (the order is by share), no deck goals said as such `3a4e39c`
 - Sobres → Ajustes saves one expansion's points (PATCH, merged under the import's lock); the bookmarklet takes the player's read date like the server `368bf90`
@@ -278,6 +281,9 @@ _Borrador generado al 2026-11-03 desde la etiqueta `v1.0.0` (406 commits). Escri
 
 ### Documentado
 
+- specification for the UI renewal mock-ups `ea5faac`
+- collection export of 2026-11-11 as a new fixture `c6b19a7`
+- 30/10–3/11 — promo packs, pokemon-zone phase 1 and the ★★ coupon; fold their decisions (T-025, D-032, T-023) (#174) `db3bb93`
 - the decisions of Cupón ★★ `a98c5bd`
 - pokemon-zone in API.md and its decisions `7d3149c`
 - 29/10, C1 day — the catalog with C1 (#157), unknown sets in «Tracker al día» (#159), the fixes after g2 (#158), 30 built decks (#161) and the C1 engine (#160); fold their decisions (D-029, D-031, T-023, T-024) `29bdfd4`
@@ -433,34 +439,8 @@ _Borrador generado al 2026-11-03 desde la etiqueta `v1.0.0` (406 commits). Escri
 ### Otros
 
 - docs+test: decisions of the self-review, labSimulable in API.md, the Bot select in the screens (D-029) `43b7f6e`
-### Hallazgos cerrados
-
-- H-059 por `703b89b` en main
-- H-058 por `0650518` en main
-- H-056 por `dfc8b05` en main
-- H-057 por `d7a6c1c` en main
-- H-050 por `55850d4` en main
 
 ### Decidido
 
-- 2026-11-03 — T-025, decidido por Santiago: el `payload.json` de #170 conserva los totales reales de sobres y rarezas; la regla de números inventados vale para lo que venga (DECISIONES 66.28).
-- 2026-11-03 — T-025, aprobado por Santiago: el refinamiento de la suerte «Según el juego» (#172, DECISIONES 66.19).
-- 2026-11-02 — T-025, aprobado por Santiago: la fase 1 de pokemon-zone, con un marcador (#170).
-- 2026-11-02 — pedido de Santiago: el objetivo de los sobres de promoción es tener 2 copias de cada versión (#169).
-- 2026-10-30 — decidido por Santiago: el orden de los sobres de promoción (una carta para un mazo, una que no tiene en ninguna versión, una versión que falta; sorteo solo entre los empatados) (#164).
-- 2026-10-29 — pedido de Santiago: el tope de mazos armados pasa de 25 a 30 (#161).
-- 2026-10-29 — D-031 aplicada: el motor pasa a la copia sobre upstream con C1 (`77e0617`, #160).
-- 2026-10-23 — D-029, decidido por Santiago: g2 es el bot por defecto ya (calibraciones 82, 83 y 86 con el banco grande); los puntajes del laboratorio se recalcularon con g2.
-- 2026-10-23 — T-023, decidido por Santiago: el 29/10 la app pasa sola a la era C1, aunque el meta quede vacío hasta que lleguen torneos.
-- 2026-10-22 — T-024, decidido por Santiago: en el archivo para el tracker, `Collected` es FALSE con 0 copias.
-- 2026-10-22 — D-031 y T-023, decidido por Santiago: el motor no se mueve hasta que upstream cargue C1 «Dual Fusion»; ese día entran juntos C1, los arreglos de upstream y nuestras dos ramas. Para C1, los PR 3 y 4 antes del 29/10, el issue upstream del doble tipo, el sobre especial aparte y apagado, y los Community Decks más adelante.
-- 2026-10-22 — T-024, pedido de Santiago: la colección real desde ptcgpocket.gg, con el archivo para poner al día el tracker.
-- 2026-10-19 — D-029: el Coordinador lanzó, a pedido de Santiago, las calibraciones e2 y e3 con el banco grande que Santiago decidió el 13/10 (33 listas, 1.000 partidas por cruce) y MCTS, con el motor `c87bad0`.
-- 2026-10-18 — D-021, decidido por Santiago: menos aprobaciones a mano (los comandos seguros y `git push` a las ramas que no son main, #132) y `enforce_admins` en main.
-- 2026-10-18 — D-031: Santiago aprobó rearmar el fork de deckgym sobre upstream `adfe505` con solo `fix/choose-evolution-target` y `feat/bot-api` (engine-cli 0.3.14 y worker 0.3.12); después se relanzan los 41 mazos, la matriz y las calibraciones.
-- 2026-10-15 — T-021, decidido por Santiago: la línea 2 de los bots (sin trampa) supone la lista típica del arquetipo en el meta, sin el orden ni la mano.
-- 2026-10-14 — D-031 decidida por Santiago: la app usa un fork de deckgym con los arreglos (Casco Pesado, Extracto y Plubio, el pánico sin Activo) apenas estén listos, y se relanzan todas las simulaciones.
-- 2026-10-14 — D-030: D1–D9 del hub de chat aprobadas por Santiago.
-- 2026-10-13 — D-028 aprobada por Santiago: Aprobada por Santiago el 13/10/2026 (respuesta al Coordinador), después de probar la sincronización a mano desde Colección. La automática ya estaba prendida desde el 12/10 21:28 (trackerAutoSync).
-- 2026-10-13 — D-027 aprobada por Santiago: Aprobada por Santiago el 13/10/2026 (respuesta al Coordinador): el criterio del análisis exploratorio queda como está.
+- 2026-11-12 — D-032 aprobada por Santiago: Santiago la aprobó en el chat el 12/11/2026, después de ver en pokemon-zone que entre el 6/11 y el 12/11 el juego sumó 15 partidas versus (y 0 clasificatorias) con el evento de emblema, y 10 individuales con el evento de promo contra la CPU.
 <!-- /posta:cambios -->

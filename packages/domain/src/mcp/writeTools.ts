@@ -137,7 +137,9 @@ export const MCP_WRITE_TOOLS = {
       mode: z
         .enum(MATCH_MODES)
         .optional()
-        .describe('competitive, casual (distendida), beginner, event o friend; por defecto la de la última partida'),
+        .describe(
+          'competitive, casual (distendida), beginner, event o friend; por defecto la de la última partida. event: solo eventos de emblema contra personas; los eventos contra la CPU no se registran (D-032)',
+        ),
       note: z.string().max(1000).optional(),
       playedAt: z.iso.datetime({ offset: true }).optional().describe('Cuándo se jugó (ISO 8601); por defecto ahora'),
       opponentCards: seenCardsInput,

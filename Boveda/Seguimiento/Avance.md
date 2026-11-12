@@ -4,7 +4,7 @@ titulo: >-
   Avance
 area: proyecto
 estado: vigente
-actualizado: '2026-11-03'
+actualizado: '2026-11-12'
 origen:
   - posta init
   - docs/PLAN.md §7
@@ -89,7 +89,7 @@ revisar: false
 
 ## Próximos pasos
 
-**Producción al 3/11/2026:** desplegada hasta `2b7282e` (#174), con los sobres de promoción (#164, #165 y #169), pokemon-zone (#170–#172, backup `schemaVersion` 13) y el cupón ★★ (#173 y #174). Versión 1.0.0, engine-cli 0.3.17 y worker 0.3.15, con el regulador de CPU prendido. El motor es la copia de deckgym en `77e0617`, sobre upstream `7aa4ef0` ([D-031](Decisiones/D-031.md)), y el catálogo, el tracker en `9fafc07` (C1 y P-C). La app está en la era C1, y el evento limitado de Fusión Dual (id 2) ya está cargado. Los workers se actualizan solos ([D-026](Decisiones/D-026.md)); la PC ya está en 0.3.15. El id de la máquina se busca con `flyctl machine list --app tcg-pocket`. MCP: 49 tools de lectura y 14 de escritura.
+**Producción al 12/11/2026:** desplegada hasta `b7d8ea2` (#176, la temporada de ranked C1 del 1/12 al 15/12), con los sobres de promoción (#164, #165 y #169), pokemon-zone (#170–#172, backup `schemaVersion` 13) y el cupón ★★ (#173 y #174); #177 es solo `docs/`. Versión 1.0.0, engine-cli 0.3.17 y worker 0.3.15, con el regulador de CPU prendido. El motor es la copia de deckgym en `77e0617`, sobre upstream `7aa4ef0` ([D-031](Decisiones/D-031.md)), y el catálogo, el tracker en `8f3d1d7` (sincronizado el 11/11). La app está en la era C1, y el evento limitado de Fusión Dual (id 2) ya está cargado. Los workers se actualizan solos ([D-026](Decisiones/D-026.md)); la PC ya está en 0.3.15. El id de la máquina se busca con `flyctl machine list --app tcg-pocket`. MCP: 49 tools de lectura y 14 de escritura.
 
 **Repo:** `santiqwerty1/tcg-pocket` es público desde el 11/10 ([D-022](Decisiones/D-022.md)). main está protegida (privacy, test, e2e y screens requeridos) y, desde el 18/10, con `enforce_admins`: tampoco la cuenta de Santiago empuja directo. El hub de chat vive en `santiqwerty1/chat-hub` (privado, [D-030](Decisiones/D-030.md)), con la CI en un runner propio de la PC de Santiago.
 
@@ -101,13 +101,13 @@ revisar: false
 
 Lo que sigue, en orden:
 
-1. **Antes del 30/11** ([T-023](Tareas/T-023.md)): corregir las fechas de la temporada de ranked C1. La noticia oficial dice del 1/12 a las 06:00 al 15/12 a las 06:59 UTC; la app tiene del 30/11 al 14/12, de ptcgpocket.gg.
-2. **El 6/11** ([T-025](Tareas/T-025.md)): importar de pokemon-zone antes y después de jugar un evento de emblema, para ver si cuenta en versus.
-3. **[D-032](Decisiones/D-032.md), propuesta para Santiago:** la modalidad «Evento» de la app son solo los eventos de emblema contra personas (se comparan con versus); los eventos contra la CPU no se registran.
+1. **El motor nuevo** ([D-031](Decisiones/D-031.md), aprobado por Santiago el 12/11): la sesión «Motor» arma `engine/next-97b8787` (upstream `97b8787`, con los arreglos del 2/11 de Clear Veil, Misty y Miel, Nightmare Aura y las habilidades de un Pokémon que queda KO al evolucionar). Después, la verificación independiente del diferencial, el deploy y un sync del catálogo.
+2. **Con el motor nuevo** ([T-023](Tareas/T-023.md)): «Actualizar todos» con g2 (la era C1 tiene 39 torneos y 4.921 listas); después, la matriz y las calibraciones con listas de C1.
+3. **Renovación de la interfaz** (sesión en la nube «Nube-Interfaz», pedido de Santiago del 11/11): #177 trajo la especificación de las maquetas; vienen tres maquetas en `docs/prototipos/renovacion-ui/` para que Santiago elija una dirección. La implementación va a tocar `apps/web` de forma amplia: antes de empezar se coordina con lo que haya abierto.
 4. **El 18/11** ([T-023](Tareas/T-023.md)): cargar las excepciones del evento limitado de Fusión Dual, y sumar promo C vol. 1 a `PROMO_VOLUMES` y a los eventos cuando se conozcan sus cartas.
 5. **pokemon-zone, fase 2** ([T-025](Tareas/T-025.md)): la colección con fechas, los mazos del juego, las colecciones temáticas, la wishlist y el calendario de eventos. Las cartas se cruzan por el `cardId` de pokemon-zone.
 6. **Menores de #174:** un test que fije «más nueva» como el orden del catálogo, el plural de «esos cupones vencieron» y «termina antes» para un sobre limitado sin fecha de fin.
-7. **Con los torneos de C1** ([T-023](Tareas/T-023.md)): «Actualizar todos» con g2 y el motor nuevo; después, la matriz y las calibraciones con listas de C1.
+7. **Dependabot:** #166–#168, abiertos desde el 1/11.
 8. **SP1 («Primeros Compañeros»):** cuando el tracker lo cargue, sincronizar el catálogo, dejar el sobre apagado (runbook, paso 4) y volver a sincronizar ptcgpocket.gg.
 9. **[H-055](Hallazgos/H-055.md):** proponer a Santiago cerrarla como explicada, con g2 como arreglo.
 10. **La línea 2 de los bots, sin trampa ([T-021](Tareas/T-021.md)):** en una sesión nueva, con el traspaso de Bots del 22/10.
@@ -199,4 +199,7 @@ El 2/11/2026:
 
 El 3/11/2026:
 - **Decididos por Santiago:** el refinamiento de la suerte «Según el juego» de #172 (66.19) y dejar como está el `payload.json` de #170, con los totales reales de sobres y rarezas; la regla de números inventados vale para lo que venga (66.28).
-- **Espera a Santiago:** [D-032](Decisiones/D-032.md), qué cuenta como «Evento» en la app.
+- **Decidido por Santiago:** la temporada B4b SP terminó el 28/10 a la noche, así que queda como está (DECISIONES 61.13).
+
+El 12/11/2026:
+- **Decididos por Santiago:** [D-032](Decisiones/D-032.md) aprobada (66.29), y mover el motor a los arreglos de upstream del 2/11 para lanzar después el recálculo de C1.
