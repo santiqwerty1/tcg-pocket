@@ -1,0 +1,4 @@
+---
+seccion: Egress de la base (12/11/2026)
+---
+| **Las conexiones del pool que no son la fija se cierran después de un minuto sin uso, no a los 10 s de pg** (`idleTimeoutMillis: 60_000` en `prisma/pool-options.ts`); la fija (`min: 1`) sigue. | Medido en producción el 13/11/2026 con nada corriendo: cada ráfaga (un worker que pide trabajo, la revisión de notificaciones) usa 2–3 conexiones a la vez cada ~15–20 s, y la conexión «fija» rota entre ellas (en 55 s se vieron 3 puertos distintos, el más viejo cerrado a los 31 s). `pgbouncer.get_auth` siguió en ~5.500 por día después de #180: ~4,3 KB de TLS y arranque cada una, ~23 MB por día de egress con un presupuesto de ~110 MB por día hasta el 7/12. El costo: después de una ráfaga, hasta 8 de las 15 conexiones del pooler quedan tomadas un minuto en vez de 10 s. |
