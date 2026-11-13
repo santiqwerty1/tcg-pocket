@@ -14,7 +14,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   readonly pool: pg.Pool
 
   constructor(@Inject(ENV) env: Env) {
-    const pool = new pg.Pool(poolOptions(env.databaseUrl))
+    const pool = new pg.Pool(poolOptions(env))
     super({ adapter: new PrismaPg(pool, { disposeExternalPool: true }), log: ['warn', 'error'] })
     this.pool = pool
   }
