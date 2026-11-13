@@ -89,7 +89,7 @@ revisar: false
 
 ## Próximos pasos
 
-**Producción al 12/11/2026 (tarde):** desplegada hasta `5567e21` (#181, el motor nuevo), con #176 (la temporada de ranked C1 del 1/12 al 15/12), el tráfico a Supabase (#179, #180 y #183, [R-014](Riesgos/R-014.md)), los sobres de promoción (#164, #165 y #169), pokemon-zone (#170–#172, backup `schemaVersion` 13) y el cupón ★★ (#173 y #174); #177 y #182 son solo `docs/`. Versión 1.0.0, engine-cli 0.3.18 y worker 0.3.16, con el regulador de CPU prendido. El motor es la copia de deckgym en `ca13408`, sobre upstream `97b8787` ([D-031](Decisiones/D-031.md)), y el catálogo, el tracker en `8f3d1d7` con ese motor. El hub de chat anda en `chat-hub-sq1` y ya lleva la sala «posta» ([D-030](Decisiones/D-030.md)). La app está en la era C1, y el evento limitado de Fusión Dual (id 2) ya está cargado. Los workers se actualizan solos ([D-026](Decisiones/D-026.md)); la PC ya está en 0.3.15. El id de la máquina se busca con `flyctl machine list --app tcg-pocket`. MCP: 49 tools de lectura y 14 de escritura.
+**Producción al 13/11/2026:** desplegada hasta `47c1332` (#186, el pool de conexiones), con #181 (el motor nuevo), #176 (la temporada de ranked C1 del 1/12 al 15/12), el tráfico a Supabase (#179, #180, #183 y #186, [R-014](Riesgos/R-014.md)), los sobres de promoción (#164, #165 y #169), pokemon-zone (#170–#172, backup `schemaVersion` 13) y el cupón ★★ (#173 y #174); #177 y #182 son solo `docs/`. Versión 1.0.0, engine-cli 0.3.18 y worker 0.3.16, con el regulador de CPU prendido. El motor es la copia de deckgym en `ca13408`, sobre upstream `97b8787` ([D-031](Decisiones/D-031.md)), y el catálogo, el tracker en `8f3d1d7` con ese motor. El hub de chat anda en `chat-hub-sq1` y ya lleva la sala «posta» ([D-030](Decisiones/D-030.md)). La app está en la era C1, y el evento limitado de Fusión Dual (id 2) ya está cargado. Los workers se actualizan solos ([D-026](Decisiones/D-026.md)); la PC ya está en 0.3.15. El id de la máquina se busca con `flyctl machine list --app tcg-pocket`. MCP: 49 tools de lectura y 14 de escritura.
 
 **Repo:** `santiqwerty1/tcg-pocket` es público desde el 11/10 ([D-022](Decisiones/D-022.md)). main está protegida (privacy, test, e2e y screens requeridos) y, desde el 18/10, con `enforce_admins`: tampoco la cuenta de Santiago empuja directo. El hub de chat vive en `santiqwerty1/chat-hub` (privado, [D-030](Decisiones/D-030.md)), con la CI en un runner propio de la PC de Santiago.
 
@@ -101,13 +101,13 @@ revisar: false
 
 Lo que sigue, en orden:
 
-1. **Los resultados de C1** ([T-023](Tareas/T-023.md)): «Actualizar todos» (107–109), la matriz de los 30 mazos armados (111) y la calibración g2 (110, unas 9 horas), lanzados el 12/11 con el motor `ca13408`. Leerlos y contarle a Santiago lo que cambie.
-2. **El tráfico a Supabase** ([R-014](Riesgos/R-014.md)): el 13/11, confirmar la baja en el panel. [P-015](Preguntas/P-015.md), para Santiago: qué hacer con el detalle de una búsqueda del Laboratorio (7,2 MB cada 5 s).
+1. **El tráfico a Supabase** ([R-014](Riesgos/R-014.md)): en reposo, ~57 MB por día como mucho, con ~114 MB por día de presupuesto hasta el 7/12. El 14/11, mirar el día entero en el panel; si pasa de ~100 MB sin búsquedas del Laboratorio, la tanda siguiente (en R-014). [P-015](Preguntas/P-015.md), para Santiago: qué hacer con el detalle de una búsqueda del Laboratorio (7,2 MB cada 5 s).
+2. **Los resultados de C1** ([T-023](Tareas/T-023.md)), hecho el 13/11: «Actualizar todos» (107–109), la matriz (111) y la calibración g2 (110: 96 de 124 pares compatibles, ρ 0,47). Puntos ciegos del bot: #84 Giratina ex / Dragonair y #14 Vespiquen ex / Shuckle ex. Detalle en la bitácora del 13/11.
 3. **Renovación de la interfaz** (sesión en la nube «Nube-Interfaz», pedido de Santiago del 11/11): #177 trajo la especificación de las maquetas; vienen tres maquetas en `docs/prototipos/renovacion-ui/` para que Santiago elija una dirección. La implementación va a tocar `apps/web` de forma amplia: antes de empezar se coordina con lo que haya abierto.
 4. **El 18/11** ([T-023](Tareas/T-023.md)): cargar las excepciones del evento limitado de Fusión Dual, y sumar promo C vol. 1 a `PROMO_VOLUMES` y a los eventos cuando se conozcan sus cartas.
 5. **pokemon-zone, fase 2** ([T-025](Tareas/T-025.md)): la colección con fechas, los mazos del juego, las colecciones temáticas, la wishlist y el calendario de eventos. Las cartas se cruzan por el `cardId` de pokemon-zone.
 6. **Menores de #174:** un test que fije «más nueva» como el orden del catálogo, el plural de «esos cupones vencieron» y «termina antes» para un sobre limitado sin fecha de fin.
-7. **Dependabot:** #166–#168, abiertos desde el 1/11.
+7. **Dependabot:** #166–#168, abiertos desde el 1/11, y #184.
 8. **SP1 («Primeros Compañeros»):** cuando el tracker lo cargue, sincronizar el catálogo, dejar el sobre apagado (runbook, paso 4) y volver a sincronizar ptcgpocket.gg.
 9. **[H-055](Hallazgos/H-055.md):** proponer a Santiago cerrarla como explicada, con g2 como arreglo.
 10. **La línea 2 de los bots, sin trampa ([T-021](Tareas/T-021.md)):** en una sesión nueva, con el traspaso de Bots del 22/10.
@@ -203,3 +203,6 @@ El 3/11/2026:
 
 El 12/11/2026:
 - **Decididos por Santiago:** [D-032](Decisiones/D-032.md) aprobada (66.29), y mover el motor a los arreglos de upstream del 2/11 para lanzar después el recálculo de C1.
+
+El 13/11/2026:
+- #186 (el pool de conexiones, [R-014](Riesgos/R-014.md)), desplegado en `47c1332`; los resultados de C1 (107–111), contados a Santiago.

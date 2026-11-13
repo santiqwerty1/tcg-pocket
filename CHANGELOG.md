@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-11-12 desde la etiqueta `v1.0.0` (429 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-11-13 desde la etiqueta `v1.0.0` (433 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -88,6 +88,8 @@ _Borrador generado al 2026-11-12 desde la etiqueta `v1.0.0` (429 commits). Escri
 
 ### Corregido
 
+- a CLI takes at most 6 connections; pool tests on the real pg-pool (R-014) (#186) `8926d97`
+- keep the pool's extra connections a minute idle (R-014) (#180) `fd08b01`
 - a raw transaction whose ROLLBACK fails destroys its connection (infra-egress follow-up) (#180) `1b86aa4`
 - Misty's choice under «Unir energía», and clearer labels for both — self-review (D-031) `862b9d2`
 - the differential reads engine-cli's error and FIXED needs a declared one — self-review (D-031) (#442, #441) `a1b3256`
@@ -290,6 +292,8 @@ _Borrador generado al 2026-11-12 desde la etiqueta `v1.0.0` (429 commits). Escri
 
 ### Documentado
 
+- the pooler limit holds for the API with one CLI (R-014) (#186) `6779df4`
+- R-014, P-015 and H-061 pass posta check (priorities 1–5, P-015's «Aplicación») (R-014, P-015, H-061) `341d0aa`
 - 12/11 afternoon — Supabase egress (R-014, P-015), the engine on ca13408 (H-061), the hub deployed and «posta» moved; number the pending decisions in merge order (D-030, D-031, T-023) (#179, #180, #183, #182, #181, #441) `7a67f39`
 - three navigable mock-ups for the UI renewal (#182) `fc3223b`
 - 3/11–12/11 — #176 and #177, D-032 approved (the «Evento» mode says it), the mission decks, the engine move started (D-032, D-031, T-023, T-025) `a8496eb`
