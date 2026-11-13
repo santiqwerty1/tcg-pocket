@@ -12,7 +12,8 @@ import type { Env } from '../config/env.js'
  *   day to the pooler, ~4,3 KB of TLS handshake and start-up each, ~23 MB a day of the database's egress.
  * - A CLI runs next to the live API and both share the pooler's 15 connections (session mode). After a burst the API
  *   now holds up to its 8 for a minute, so a CLI takes at most 6 and keeps pg's 10 s idle: it does not need the
- *   savings, and 8 + 6 stay under the limit.
+ *   savings, and the API with one CLI (8 + 6) stay under the limit. Two CLIs at once, or one during a deploy (with
+ *   the migrations' connections), can still go over.
  */
 export function poolOptions(env: Pick<Env, 'databaseUrl' | 'cli'>): pg.PoolConfig {
   const common = { connectionString: env.databaseUrl, min: 1, connectionTimeoutMillis: 15_000 }
