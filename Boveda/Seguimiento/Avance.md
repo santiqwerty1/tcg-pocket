@@ -101,7 +101,7 @@ revisar: false
 
 Lo que sigue, en orden:
 
-1. **El tráfico a Supabase** ([R-014](Riesgos/R-014.md)): en reposo, ~57 MB por día como mucho, con ~114 MB por día de presupuesto hasta el 7/12. El 14/11, mirar el día entero en el panel; si pasa de ~100 MB sin búsquedas del Laboratorio, la tanda siguiente (en R-014). [P-015](Preguntas/P-015.md), para Santiago: qué hacer con el detalle de una búsqueda del Laboratorio (7,2 MB cada 5 s).
+1. **El tráfico a Supabase** ([R-014](Riesgos/R-014.md)): 65 MB el 14/11 y 79 MB el 15/11, con ~111 MB por día de presupuesto hasta el 7/12 (2,55 de 5 GB usados). Seguir mirando el panel; si un día pasa de ~100 MB sin búsquedas del Laboratorio, la tanda siguiente arranca por el dataset de torneos incremental (en R-014). [P-015](Preguntas/P-015.md), para Santiago: qué hacer con el detalle de una búsqueda del Laboratorio (7,2 MB cada 5 s).
 2. **Los resultados de C1** ([T-023](Tareas/T-023.md)), hecho el 13/11: «Actualizar todos» (107–109), la matriz (111) y la calibración g2 (110: 96 de 124 pares compatibles, ρ 0,47). Puntos ciegos del bot: #84 Giratina ex / Dragonair y #14 Vespiquen ex / Shuckle ex. Detalle en la bitácora del 13/11.
 3. **Renovación de la interfaz** (sesión en la nube «Nube-Interfaz», pedido de Santiago del 11/11): #177 trajo la especificación de las maquetas; vienen tres maquetas en `docs/prototipos/renovacion-ui/` para que Santiago elija una dirección. La implementación va a tocar `apps/web` de forma amplia: antes de empezar se coordina con lo que haya abierto.
 4. **El 18/11** ([T-023](Tareas/T-023.md)): cargar las excepciones del evento limitado de Fusión Dual, y sumar promo C vol. 1 a `PROMO_VOLUMES` y a los eventos cuando se conozcan sus cartas.
@@ -206,3 +206,6 @@ El 12/11/2026:
 
 El 13/11/2026:
 - #186 (el pool de conexiones, [R-014](Riesgos/R-014.md)), desplegado en `47c1332`; los resultados de C1 (107–111), contados a Santiago.
+
+El 15/11/2026:
+- El tráfico a Supabase en el panel ([R-014](Riesgos/R-014.md)): 65 MB el 14/11 y 79 MB el 15/11, por debajo de los ~100 MB que disparan la tanda siguiente; contado a Santiago.
