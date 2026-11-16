@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="es-AR" data-tema="oscuro" data-movimiento="expresivo" data-vistas="abajo" data-miniaturas="si" data-fila="accion">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0a0e14">
+<meta name="robots" content="noindex">
+<title>TCG Pocket · maqueta D · Fusión</title>
+<link rel="stylesheet" href="estilos.css">
+<script>
+/* Applies theme, motion and view-switcher position before the first paint. URL parameters win for this load and are never
+   saved: only the menu (Aspecto) writes to localStorage. */
+(function () {
+  var root = document.documentElement, saved = {}
+  try { saved = JSON.parse(localStorage.getItem('maquetaD.aspecto.v1') || '{}') || {} } catch (e) {}
+  var query = (location.hash.split('?')[1] || ''), params = {}
+  query.split('&').forEach(function (pair) { var kv = pair.split('='); if (kv[0]) params[kv[0]] = decodeURIComponent(kv[1] || '') })
+  var theme = params.tema || saved.tema || 'oscuro'
+  var dark = theme === 'sistema' ? !(window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches) : theme !== 'claro'
+  root.dataset.tema = dark ? 'oscuro' : 'claro'
+  var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches
+  var levels = ['expresivo', 'sutil', 'ninguno']
+  var motion = levels.indexOf(params.movimiento) >= 0 ? params.movimiento : levels.indexOf(saved.movimiento) >= 0 ? saved.movimiento : 'expresivo'
+  root.dataset.movimiento = reduce ? 'ninguno' : motion
+  root.dataset.vistas = (params.vistas || saved.vistas) === 'arriba' ? 'arriba' : 'abajo'
+  root.dataset.miniaturas = saved.miniaturas === 'no' ? 'no' : 'si'
+})()
+</script>
+</head>
+<body>
+<aside class="pc-note" aria-label="Sobre esta maqueta">
+  <p class="pc-note-t">Maqueta D · Fusión</p>
+  <p>La piel y la forma de usar de B, la respuesta primero de A y los tableros de C.</p>
+  <p>Pensada para el celular (360 × 780). En la PC se ve la misma columna, centrada.</p>
+  <p><kbd>/</kbd> abre el buscador · <kbd>Esc</kbd> cierra la hoja</p>
+</aside>
+<div id="app">
+  <!-- inside #app: with a sheet open the whole page is inert, and this link with it -->
+  <a class="skip" href="#principal" data-a="skip">Saltar al contenido</a>
+  <header id="encabezado" class="top"></header>
+  <main id="principal" tabindex="-1"></main>
+  <div class="bottom-zone" id="zona-inferior">
+    <div id="fila" class="fixed-row"></div>
+    <nav id="barra" class="tabbar" aria-label="Secciones"></nav>
+  </div>
+</div>
+<div id="capa-hoja" class="sheet-layer" hidden></div>
+<div id="avisos" class="toasts" role="status" aria-live="polite"></div>
+<noscript><p style="padding:24px;color:#fff">Esta maqueta necesita JavaScript.</p></noscript>
+<script src="../datos.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
