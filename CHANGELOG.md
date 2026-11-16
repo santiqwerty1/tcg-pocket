@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-11-13 desde la etiqueta `v1.0.0` (433 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-11-15 desde la etiqueta `v1.0.0` (434 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -292,6 +292,7 @@ _Borrador generado al 2026-11-13 desde la etiqueta `v1.0.0` (433 commits). Escri
 
 ### Documentado
 
+- 13/11 — C1 results, #186 and the idle egress; number 69.6–69.7 (R-014, T-023) `3b06213`
 - the pooler limit holds for the API with one CLI (R-014) (#186) `6779df4`
 - R-014, P-015 and H-061 pass posta check (priorities 1–5, P-015's «Aplicación») (R-014, P-015, H-061) `341d0aa`
 - 12/11 afternoon — Supabase egress (R-014, P-015), the engine on ca13408 (H-061), the hub deployed and «posta» moved; number the pending decisions in merge order (D-030, D-031, T-023) (#179, #180, #183, #182, #181, #441) `7a67f39`
@@ -460,4 +461,9 @@ _Borrador generado al 2026-11-13 desde la etiqueta `v1.0.0` (433 commits). Escri
 ### Otros
 
 - docs+test: decisions of the self-review, labSimulable in API.md, the Bot select in the screens (D-029) `43b7f6e`
+
+### Hallazgos cerrados
+
+- H-057 por `d7a6c1c` en main
+- H-050 por `55850d4` en main
 <!-- /posta:cambios -->
