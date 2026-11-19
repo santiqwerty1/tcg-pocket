@@ -7,6 +7,7 @@ import { DotggClient } from './dotgg-client.js'
 import { DotggLinkStore } from './dotgg-link.store.js'
 import { DotggSyncController, TrackerGapController } from './dotgg-sync.controller.js'
 import { DotggSync } from './dotgg-sync.service.js'
+import { ImportRowsCache } from './import-rows.cache.js'
 import { SourceSnapshots } from './source-snapshot.js'
 import { TrackerClient } from './tracker-client.js'
 import { TrackerGapService } from './tracker-gap.service.js'
@@ -19,6 +20,7 @@ import { TrackerSync } from './tracker-sync.service.js'
   providers: [
     CollectionRepository,
     CollectionService,
+    ImportRowsCache,
     TrackerClient,
     TrackerSync,
     DotggLinkStore,
@@ -27,6 +29,6 @@ import { TrackerSync } from './tracker-sync.service.js'
     DotggSync,
     TrackerGapService,
   ],
-  exports: [CollectionRepository, CollectionService, TrackerGapService, DotggLinkStore],
+  exports: [CollectionRepository, CollectionService, TrackerGapService, DotggLinkStore, ImportRowsCache],
 })
 export class CollectionModule {}

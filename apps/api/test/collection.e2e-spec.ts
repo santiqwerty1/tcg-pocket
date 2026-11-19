@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { SchedulerRegistry } from '@nestjs/schedule'
+import pg from 'pg'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
+import { CollectionRepository } from '../src/collection/collection.repository.js'
+import { ImportRowsCache } from '../src/collection/import-rows.cache.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
+import { PrismaService } from '../src/prisma/prisma.service.js'
+import { countDatabaseBytes } from './egress.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /** Fixtures of docs/PLAN.md §7 (M2 acceptance) and Apéndice B for the 6/10/2026 export. */
@@ -436,5 +442,79 @@ describe('collection (e2e)', () => {
     expect(luck.intervals[0]?.luck).toMatchObject({ gained: 30, rare: { observed: 10 } })
     expect(luck.intervals[0]?.luck.rare.check.verdict).toBe('lucky')
     expect(luck.intervals[0]?.luck.packsEstimate).toBeCloseTo(6, 10)
+  })
+
+  it('R-014: an import’s rows are read once (its view, «suerte de los sobres»), not on every visit', async () => {
+    const minute = test.app.get(SchedulerRegistry).getCronJob('catalog-memory')
+    minute.stop()
+    const counter = countDatabaseBytes(test.app.get(PrismaService).pool)
+    const measured = async (path: string) => {
+      const before = counter.bytes()
+      const response = await get(path)
+      expect(response.status).toBe(200)
+      return { body: response.body as unknown, bytes: counter.bytes() - before }
+    }
+    try {
+      test.app.get(ImportRowsCache).clear()
+      const miss = await measured(`/api/collection/imports/${importId}`)
+      const hit = await measured(`/api/collection/imports/${importId}`)
+      expect(hit.body).toEqual(miss.body)
+      // The 4.317 rows of the real CSV, read only the first time.
+      expect(miss.bytes - hit.bytes).toBeGreaterThan(100_000)
+      const luck = await measured('/api/collection/pack-luck')
+      const luckAgain = await measured('/api/collection/pack-luck')
+      expect(luckAgain.body).toEqual(luck.body)
+      expect(luckAgain.bytes).toBeLessThan(luck.bytes / 5)
+    } finally {
+      counter.stop()
+      minute.start()
+    }
+  })
+
+  it('R-014: the whole stock is read once while it stays the same; a write from anywhere is seen on the next read', async () => {
+    const repository = test.app.get(CollectionRepository)
+    const UNIT = 'A1-1'
+    const minute = test.app.get(SchedulerRegistry).getCronJob('catalog-memory')
+    minute.stop()
+    const counter = countDatabaseBytes(test.app.get(PrismaService).pool)
+    // Another process (a catalog sync's remap in a CLI writes the stock in raw SQL).
+    const other = new pg.Client({ connectionString: test.env.databaseUrl })
+    await other.connect()
+    const measured = async () => {
+      const before = counter.bytes()
+      const stock = await repository.loadStock()
+      return { stock, bytes: counter.bytes() - before }
+    }
+    const copies = (await repository.loadStock())[UNIT]?.amountOwned ?? 0
+    const playable = await playableOf('A1-1')
+    try {
+      const held = await measured()
+      expect(Object.keys(held.stock).length).toBeGreaterThan(2000)
+      // Only its fingerprint: a few hundred bytes, not the ~2.500 rows.
+      expect(held.bytes).toBeLessThan(2_000)
+
+      // Copies changed by another process, without touching `updated_at` (the rows and their newest `updated_at` stay).
+      await other.query('UPDATE collection_stock SET amount_owned = amount_owned + 1 WHERE card_id = $1', [UNIT])
+      const moved = await measured()
+      expect(moved.stock[UNIT]?.amountOwned).toBe(copies + 1)
+      expect(moved.bytes).toBeGreaterThan(held.bytes * 20)
+      // And back as it was: the stock held is the changed one, so it is read again.
+      await other.query('UPDATE collection_stock SET amount_owned = amount_owned - 1 WHERE card_id = $1', [UNIT])
+      expect((await measured()).stock).toEqual(held.stock)
+      // «Collected» alone counts too.
+      await other.query('UPDATE collection_stock SET collected = NOT collected WHERE card_id = $1', [UNIT])
+      expect((await measured()).stock[UNIT]?.collected).toBe(!held.stock[UNIT]?.collected)
+      await other.query('UPDATE collection_stock SET collected = NOT collected WHERE card_id = $1', [UNIT])
+
+      // A write of this process: the next read (here, the playable copies) has it.
+      expect((await patch(`/api/collection/stock/${UNIT}`).send({ amountOwned: copies + 2 })).status).toBe(200)
+      expect((await repository.loadStock())[UNIT]?.amountOwned).toBe(copies + 2)
+      expect(await playableOf('A1-1')).toBe(playable + 2)
+    } finally {
+      await patch(`/api/collection/stock/${UNIT}`).send({ amountOwned: copies })
+      await other.end()
+      counter.stop()
+      minute.start()
+    }
   })
 })
