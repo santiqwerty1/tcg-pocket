@@ -9,6 +9,9 @@ ni en Vite). No reemplazan nada: la app real sigue en `apps/web`.
 - `c/` · **Consola de torneo** — tableros densos y ordenables con mini-gráficos; lanzador al alcance del pulgar.
 - `datos.js` — los datos compartidos (`window.DATOS`). **Las tres maquetas muestran estos datos y ningún otro.**
 
+Después de comparar las tres se sumó `d/` · **Fusión** (16/11/2026): cumple este mismo contrato (direcciones, datos, medidas y
+lo decidido por Santi) y además su receta, `DIRECCION-D.md`. Donde este documento dice «las tres», vale también para D.
+
 ## Lo que vale para las tres (decidido por Santi)
 
 1. Celular primero: **360×780 px** (Galaxy S25). Tiene que verse bien también a 412×915 y, «prolija», a 1280×800

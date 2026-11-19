@@ -729,7 +729,15 @@
 
   /* Registrar partida */
   const M = {}
+  let lastSaved = null // the match saved in this visit that still counts («Deshacer» clears it)
   function matchInit(params) {
+    if (params.estado === 'guardada' && lastSaved) {
+      // Back at the saved state through the browser history after saving in this visit: it is that same match again
+      // (nothing new is counted, and «Deshacer» undoes it).
+      Object.assign(M, lastSaved, { seen: lastSaved.seen.slice(), saved: true, example: false, applied: true, fresh: false, hint: false, noteOpen: false })
+      ui.open.delete('calc')
+      return
+    }
     const ex = D.partida.ejemplo
     const preset = params.estado === 'lista' || params.estado === 'guardada'
     Object.assign(M, {
@@ -1203,11 +1211,13 @@
       M.saved = true; M.example = false; M.rank = null; M.fresh = true
       ui.open.delete('calc')
       matchApply(1)
+      lastSaved = Object.assign({}, M, { seen: M.seen.slice() })
       history.replaceState(null, '', sheetHash('hoja=partida&estado=guardada'))
       matchRender('undo')
     },
     'match-undo': () => {
       if (M.applied) matchApply(-1)
+      lastSaved = null
       M.saved = false
       history.replaceState(null, '', sheetHash('hoja=partida'))
       matchRender('save')
@@ -1216,6 +1226,7 @@
     'match-rank': (el) => {
       const i = Number(el.dataset.v)
       M.rank = M.rank === i ? null : i
+      if (lastSaved && M.applied) lastSaved.rank = M.rank
       matchRender('rank-' + i)
       if (M.rank === i && /^Otro/.test(D.partida.respuesta.rango.opciones[i])) toast('En la app abre la lista de rangos para elegir otro. La maqueta solo lo marca.')
     },
