@@ -134,7 +134,7 @@
 [data-e="colorless"] { --e: var(--e-colorless); --e-fill: var(--e-colorless); --e-ink: var(--e-colorless-ink); }
 [data-e="none"] { --e: var(--e-none); --e-fill: var(--e-none); --e-ink: var(--e-none-ink); }
 /* The tile that takes the place of a card's image (it failed, or thumbnails are off): three stops of the type colour, ALL on the
-   side of its ink, so the name or the glyph written on it keeps 4.5:1 on every one of them (arreglos-1/calc-tile.mjs).
+   side of its ink, so the name or the glyph written on it keeps 4.5:1 on every one of them.
    Dark theme: the inks are dark and the tile stays light (the last stop barely darker than the colour); the two types whose ink
    is light (darkness, none) only go darker. Light theme: every ink is white, and the tile goes darker than the token of the type. */
 :root[data-tema="oscuro"] { --tile-1: 86%; --tile-1c: #fff; --tile-2: 100%; --tile-3: 94%; }
@@ -1366,7 +1366,7 @@ button.seen-card { padding: 0; border: 0; background: none; color: inherit; text
 .vline + .chipline { margin-top: 8px; }
 .chipline + .board { margin-top: 8px; }
 /* a deck in the board of Mazos: flat rows of 53 px (two lines of name) + their line; eight whole rows in the first screen at
-   360 × 780, with some 10 px to spare over the fixed row (medir-mazos-d.mjs) */
+   360 × 780, with some 10 px to spare over the fixed row (measured) */
 .board-row.deck-row { min-height: 51px; padding: 6px 8px 6px 11px; gap: 5px; }
 .deck-row .board-name { gap: 5px; }
 .deck-row .art .crop { --h: 38px; width: 20px; height: 38px; }
@@ -1376,7 +1376,7 @@ button.seen-card { padding: 0; border: 0; background: none; color: inherit; text
 /* the name fills its first line before it breaks: «#13 Hoopa ex /» and then «Mega-Absol ex». The column of the names takes
    every pixel it can (167 px at 360: crops of 20 px and gaps of 5) and its letters sit a hair closer (−0.01em): the widest
    first line of the data, «#24 Mega-Charizard Y ex /», needs 165.5 px and ends with its slash, like the other 29
-   (arreglos-2/m-mazos.mjs measures them all). */
+   (all 30 measured). */
 .deck-row .board-name .deck-name { font-size: 16px; line-height: 1.12; text-wrap: wrap; letter-spacing: -.01em; }
 .board-row.one.deck-row .bcell { padding-right: 0; }
 [data-board="mazos"] .board-cap { padding-left: 11px; column-gap: 5px; }

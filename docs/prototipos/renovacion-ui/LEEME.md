@@ -2,8 +2,8 @@
 
 Cuatro direcciones de diseño para la PWA, como prototipos navegables y aislados: HTML, CSS y JavaScript planos, sin
 compilar y sin tocar `apps/web`. A, B y C son el material para elegir una dirección (paso 4 del pedido de Santi del
-11/11/2026); D es la fusión que salió de esa comparación (paso 5). La implementación viene después del visto bueno de
-Santi a D.
+11/11/2026); D es la fusión que Santi fue armando el 12/11/2026 al comparar las tres. La implementación viene después
+del visto bueno de Santi a D.
 
 | Carpeta | Dirección | Idea |
 |---|---|---|
@@ -34,9 +34,11 @@ completa): `#/hoy`, `#/hoy?hoja=partida`, `#/mazos`, `#/mazo/1`, `#/mazo/1/rinde
 - **Las miniaturas de cartas son enlaces** a las imágenes del tracker, como en la app; ninguna imagen está en el repo.
   Si no cargan, cada maqueta dibuja un reemplazo con el color del tipo.
 - **No son la app**: no hablan con la API, no guardan nada (salvo el aspecto elegido, en el navegador; D recuerda
-  además las partidas cargadas mientras dura la pestaña, para que recargar no las pierda) y varias acciones secundarias
-  solo muestran un aviso. Quedaron sin maqueta el historial y las estadísticas de partidas, el resumen semanal,
-  «Importar desde la hoja», la suerte de los sobres, el intercambio, pokemon-zone, las misiones, las notificaciones,
-  armar desde un núcleo, el editor de mazos y la mesa de juego: van a tener su lugar en el diseño final.
+  además las partidas cargadas en la visita, para que recargar la página no las pierda: un enlace directo o una
+  pestaña nueva arrancan de `datos.js`) y varias acciones secundarias solo muestran un aviso. Quedaron sin maqueta el
+  historial y las estadísticas de partidas, el resumen semanal, «Importar desde la hoja», «Clasificar rivales», la
+  suerte de los sobres, el intercambio, pokemon-zone, las misiones, las notificaciones, «¿Qué armo después?», armar
+  desde un núcleo, la calculadora de mano, el editor de mazos y la mesa de juego: van a tener su lugar en el diseño
+  final.
 - Las fuentes de B, C y D (`b/fuentes`, `c/fuentes`, `d/fuentes`) son OFL 1.1 y van con su licencia
   (`docs/LICENCIAS.md`).

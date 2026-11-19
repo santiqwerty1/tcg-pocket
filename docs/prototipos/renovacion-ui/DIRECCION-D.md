@@ -42,7 +42,7 @@ Y dos reglas de color y de números:
 ### Abajo
 
 - **Barra de pestañas:** Hoy · Mazos · Cartas · Meta · Pruebas, y la **lupa** al final (como en B). La lupa abre el
-  lanzador (punto 9). Cada pestaña recuerda dónde estaba; tocarla de nuevo vuelve a su inicio.
+  lanzador (punto 10). Cada pestaña recuerda dónde estaba; tocarla de nuevo vuelve a su inicio.
 - **Fila fija**, justo encima de la barra, de un solo renglón (unos 60 px):
 
 | Pantalla | Vistas (izquierda) | Acción (derecha) |
@@ -125,7 +125,7 @@ guardado deja el récord como lo traen los datos.
 
 Línea de veredicto de A («30 mazos armados; a 6 les falta una carta o dos»), filtro por nombre o número, fichas «Todos
 30 · Con partidas 9 · Incompletos 6», encabezado ordenable de C (N.º · Última · n · %) y filas planas con la densidad de
-B (unos 60 px, 8 por pantalla): lomo de energía, dos miniaturas, «#N nombre» en hasta dos renglones, la etiqueta «falta
+B (unos 52 px, 8 por pantalla): lomo de energía, dos miniaturas, «#N nombre» en hasta dos renglones, la etiqueta «falta
 1», y a la derecha `M 51,1 % n 47` con su mini-intervalo o «sin datos».
 
 ## 7. Cartas
@@ -145,7 +145,7 @@ Vistas Pruebas · Practicar · Motor; la acción es «+» (nueva prueba: abre la
 marcador.**
 
 - **Pruebas:** primero el último resultado terminado, como veredicto (A); una **línea de estado del motor solo si hay
-  algo corriendo o roto** («Jugando #24 · 41,2 % · 45 tandas en cola»); las cuatro preguntas como fichas de B; la lista
+  algo corriendo o roto** («Jugando #24 · 64,3 % · 45 tandas en cola»); las cuatro preguntas como fichas de B; la lista
   de trabajos con sus filtros, estado, avance y lo que dio cada uno.
 - **Practicar:** jugar contra el bot (lo que está en curso), situaciones y ejercicios.
 - **Motor:** el estado del worker como tablero (C), la cola, calibración y análisis.
@@ -163,7 +163,7 @@ marcador.**
   (Cuota con barra · 7 días con curva · % de victorias con intervalo y n) elegida tocando el encabezado; ficha de
   energía y la etiqueta «armado #24 / armable / faltan N». Tocar una fila la abre en el lugar: las otras dos cifras,
   «Abrir el arquetipo» y «Probar contra este».
-- **Un arquetipo:** marcador TORNEOS 47,9 % n 942 · CUOTA 14,3 % (curva) · VOS 23,5 % n 17; veredicto; «Jugar contra
+- **Un arquetipo:** marcador TORNEOS 47,9 % n 942 · CUOTA 14,3 % (curva) · VOS 20 % n 15; veredicto; «Jugar contra
   el bot» y «Mi mazo #24» en el contenido; «Mi nota»; matchups como tabla ordenable (peor primero · n · cuota) con su
   mini-intervalo; las listas. La acción fija es «+ Registrar contra este».
 
@@ -236,7 +236,10 @@ Vale para la maqueta y para la implementación.
 10. Tocables de 44 × 44 px o más; el «+» mide 48 × 48.
 11. La cabecera fija del mazo mide 72 px (nombre en un renglón) o 92 px (dos), y es lo único fijo arriba además del
     encabezado.
-12. El lanzador va completo en la maqueta; en la app entra en dos pasos.
+12. El lanzador va completo en la maqueta; en la app entra en dos pasos (fase 1b): primero la búsqueda con sus pestañas
+    por tipo y las acciones que solo navegan o abren una hoja con los datos puestos; después, las acciones que
+    escriben, con confirmación y sobre los endpoints que ya existen. El índice sale de la caché del cliente y de
+    `GET /api/search`, sin bajar listas enteras.
 13. La D es completa: los 18 estados, sobre el código de B, con el marcador, las tablas y el lanzador de C.
 
 Fases de la implementación, después del visto bueno de Santi a la maqueta (antes de la fase 0 se avisa al
@@ -265,15 +268,24 @@ Excepciones que la maqueta declara (la implementación las hereda o las resuelve
 
 - **Hoy:** las tres filas de «¿Cuál llevo hoy?» quedan debajo de la fila fija en la primera pantalla (empiezan en 638 px);
   se ve su encabezado. Mostrarlas pediría achicar la mesa.
-- **Menos de 360 px o letra al 130 %:** la cabecera fija del mazo mide 92 o 112 px, porque las tres fuentes necesitan
-  298 px a 14 px y pasan a dos renglones antes que achicar la letra; un nombre de mazo puede partirse antes de «ex».
+- **Menos de 320 px de ancho** (el zoom de la página al 130 % deja 277 px): la cabecera fija del mazo mide 92 o 112 px,
+  porque las tres fuentes necesitan 298 px a 14 px y pasan a dos renglones antes que achicar la letra. De 320 px para
+  arriba mide 72 o 92 px.
+- **Menos de 360 px de ancho:** un nombre de mazo puede empezar su segundo renglón con «/» o con «ex».
 - **Movimiento «expresivo»:** mientras una hoja entra (260 ms; 150 ms con «sutil»), un toque sobre lo que la hoja trae
   no acciona. Evita que el segundo toque de un doble toque caiga en un botón que recién aparece.
 - **Mazos:** el sello M va en el segundo renglón de la celda (90 px de ancho); el encabezado de la columna sí lo lleva.
-- **Miniaturas que no cargan:** en los recuadros chicos (26–41 px) va el símbolo del tipo, con el nombre escrito al
-  lado; en la grilla y en la ficha de carta el recuadro lleva el nombre.
+- **Miniaturas que no cargan:** en los recuadros chicos (hasta 58 px de ancho: las filas de cartas, el lanzador, el
+  abanico de la ficha y las filas de Mazos) va el símbolo del tipo, con el nombre escrito al lado. En la mesa, el
+  recuadro lleva el primer nombre solo si entra entero (#1 y #14 sí, #86 no). En la grilla y en la ficha de carta, el
+  recuadro lleva el nombre.
 - **Solo el mazo #1 tiene la ficha completa:** `datos.js` trae las cuatro vistas enteras de ese mazo.
 - **La visita:** las partidas guardadas viven en `sessionStorage` y se leen solo al recargar o al volver con «atrás».
+- **«¿Mala racha?»:** «esperable 40,7 %» va con su sello T y sin n, porque `datos.js` trae ese número solo dentro de
+  la oración del veredicto.
+- **Textos que vienen así en `datos.js`:** «1 cruces fallaron», en el trabajo #6, copia el aviso que hoy escribe la
+  app. La cuota de un arquetipo es distinta en Novedades (los últimos días) y en Meta (la era): Mega Mewtwo X ex Mew ex
+  figura con 3,2 % y con 6,2 %.
 
 Pendientes de decisión (Santi o el Coordinador), sin cambiar hasta entonces:
 

@@ -459,7 +459,7 @@
   })()
 
   /* ───────────── Pieces of D ─────────────
-     Written once and used by every screen (the hand-over note d-notas.md says how to use each one).
+     Written once and used by every screen.
      · badge, srcLegend    the three sources, never mixed: M (mis partidas), T (torneos), B (bots)
      · ORI, COV            the small marks: «orientativo» (n < 30) and «sin cruces con datos»
      · mIc, mZoom, mBar, spark, streak, distBar    micro-charts for a cell or a row
@@ -684,7 +684,7 @@
     const k = ui.sort.pick.k
     const have = rows.filter((m) => m[k])
     const total = (COUNT_WORD[rows.length] || String(rows.length)).toLowerCase()
-    /* Every variant fits in ONE line at 360 px (328 px of text; arreglos-1/medir-porque.mjs): the line has no room reserved for
+    /* Every variant fits in ONE line at 360 px (328 px of text, measured): the line has no room reserved for
        a second one, and a sentence that took two pushed the whole board down 19 px when its column was chosen. */
     const some = (n) => (COUNT_WORD[n] || String(n)).toLowerCase().replace(/^un$/, 'uno')
     if (k === 'mias') {
@@ -1033,13 +1033,13 @@
     const X = (i) => ((i + 0.5) / rows.length) * 100
     const drawn = rows.map((c, i) => ({ c: c, x: X(i) })).filter((p) => p.c.pct != null)
     const path = drawn.map((p, i) => (i ? 'L' : 'M') + p.x.toFixed(2) + ' ' + (100 - p.c.pct).toFixed(2)).join('')
-    const said = 'Porcentaje de victorias por semana: ' + rows.map((c) => 'semana del ' + shortDate(c.semana) + ', ' + (c.pct == null ? 'sin datos' : pct(c.pct) + ' (' + nTxt(c.n) + ')')).join('; ')
+    const said = 'Porcentaje de victorias por semana: ' + rows.map((c) => 'semana del ' + shortDate(c.semana) + ', ' + (c.pct == null ? 'sin datos' : pct(c.pct) + ' (' + nTxt(c.n) + (c.n < 30 ? ', orientativo' : '') + ')')).join('; ')
     return '<div class="wk" role="img" aria-label="' + esc(said) + '"><div class="wk-plot"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">' +
       '<line class="grid" x1="0" x2="100" y1="0" y2="0"/><line class="half" x1="0" x2="100" y1="50" y2="50"/><line class="grid" x1="0" x2="100" y1="100" y2="100"/>' + (path ? '<path d="' + path + '"/>' : '') + '</svg>' +
       [100, 50, 0].map((v) => '<span class="wk-y" style="top:' + (100 - v) + '%">' + v + NB + '%</span>').join('') +
       drawn.map((p) => '<i class="wk-pt' + (p.c.now ? ' now' : '') + '" style="left:' + p.x.toFixed(2) + '%;top:' + (100 - p.c.pct).toFixed(2) + '%;--d:' + (7 + (9 * p.c.n) / max).toFixed(1) + 'px"></i>').join('') + '</div>' +
       '<div class="wk-cols">' + rows.map((c) => '<span' + (c.now ? ' class="now"' : '') + '>' + (c.pct == null ? '<span class="nd">sin datos</span>' : '<b>' + pct(c.pct) + '</b><span>' + nShort(c.n) + '</span>') + '<span>' + shortDate(c.semana) + '</span></span>').join('') + '</div></div>' +
-      '<p class="fine wk-note">Punto más grande: más partidas esa semana. Línea punteada: 50' + NB + '%. Cada columna es una semana y empieza el lunes indicado' + (rows.length && rows[rows.length - 1].now ? '; la última está en curso.' : '.') + '</p>'
+      '<p class="fine wk-note">' + (drawn.some((p) => p.c.n < 30) ? (drawn.every((p) => p.c.n < 30) ? 'Todo orientativo: ninguna semana llega a 30 partidas. ' : 'Orientativo: las semanas con menos de 30 partidas. ') : '') + 'Punto más grande: más partidas esa semana. Línea punteada: 50' + NB + '%. Cada columna es una semana y empieza el lunes indicado' + (rows.length && rows[rows.length - 1].now ? '; la última está en curso.' : '.') + '</p>'
   }
   /* «¿Importa empezar?»: the sentence of the data and the two cuts. With matches saved in this visit the numbers move, and the
      sentence is written again without the part only the app can say (whether the difference may be chance). */
@@ -1493,7 +1493,7 @@
     const y = !mine ? ['todavía no jugaste contra él', ''] : mine.ci[1] < 50 ? ['a vos te viene ganando', 'queda bajo el'] : mine.ci[0] > 50 ? ['vos le venís ganando', 'queda sobre el'] : ['con vos viene parejo', 'incluye el']
     return {
       a: t[0] + '; ' + y[0],
-      why: '<span class="nb">' + badge('t') + ' ' + pct(a.pct) + '</span> (' + nTxt(a.n) + '): el intervalo ' + t[1] + ' la media de la era, ' + pct(media) + '. ' +
+      why: '<span class="nb">' + badge('t') + ' ' + pct(a.pct) + '</span> (' + nTxt(a.n) + '): el intervalo ' + t[1] + ' la media de la era, ' + pct(media) + ' (' + nTxt(D.meta.media.n) + '). ' +
         (mine ? '<span class="nb">' + badge('m') + ' ' + pct(mine.pct) + '</span> (' + nTxt(mine.n) + (mine.orientativo ? ', orientativo' : '') + '): el intervalo ' + y[1] + ' 50' + NB + '%.' : '<span class="nb">' + badge('m') + ' sin datos</span>: no hay partidas tuyas contra él.'),
     }
   }
@@ -1684,10 +1684,10 @@
     const x = (v) => Math.max(0, Math.min(100, v))
     /* each label sits over (or under) its mark without leaving the bar: its width is estimated from its text */
     const at = (v, text) => { const w = Math.round(text.length * 7.3) + 24; return 'left:clamp(0px, calc(' + x(v) + '% - ' + w / 2 + 'px), calc(100% - ' + w + 'px))' }
-    const a = 'vos ' + pct(yo.pct) + ' ' + nShort(yo.n)
+    const a = 'vos ' + pct(yo.pct) + ' ' + nShort(yo.n) + (yo.orientativo ? '  ' : '')
     const b = 'esperable ' + pct(ref)
-    return '<div class="xbar" role="img" aria-label="' + esc('Vos, en tus partidas: ' + pct(yo.pct) + ', ' + nTxt(yo.n) + ', ' + ciTxt(yo.ci) + '. Lo esperable según torneos: ' + pct(ref) + '.') + '">' +
-      '<span class="xbar-l" style="' + at(yo.pct, a) + '">' + badge('m') + 'vos <b>' + pct(yo.pct) + '</b> ' + nShort(yo.n) + '</span>' +
+    return '<div class="xbar" role="img" aria-label="' + esc('Vos, en tus partidas: ' + pct(yo.pct) + ', ' + nTxt(yo.n) + (yo.orientativo ? ', orientativo' : '') + ', ' + ciTxt(yo.ci) + '. Lo esperable según torneos: ' + pct(ref) + '.') + '">' +
+      '<span class="xbar-l" style="' + at(yo.pct, a) + '">' + badge('m') + 'vos <b>' + pct(yo.pct) + '</b> ' + nShort(yo.n) + (yo.orientativo ? ORI : '') + '</span>' +
       '<div class="ic"><i class="band" style="left:' + x(yo.ci[0]) + '%;width:' + (x(yo.ci[1]) - x(yo.ci[0])) + '%"></i><i class="ref" style="left:' + x(ref) + '%"></i><i class="pt" style="left:' + x(yo.pct) + '%"></i></div>' +
       '<span class="xbar-l below" style="' + at(ref, b) + '">' + badge('t') + 'esperable <b>' + pct(ref) + '</b></span></div>'
   }
