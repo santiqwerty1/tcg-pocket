@@ -33,8 +33,9 @@ export default defineConfig(({ mode }) => ({
             start_url: '/',
             scope: '/',
             display: 'standalone',
-            theme_color: '#2563eb',
-            background_color: '#ffffff',
+            // The dark theme's page background (`--background` in src/index.css): dark is the default.
+            theme_color: '#0a0e14',
+            background_color: '#0a0e14',
             icons: [
               { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
               { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
@@ -72,14 +73,23 @@ export default defineConfig(({ mode }) => ({
             // Fase 18: the push and notificationclick handlers (public/push-sw.js).
             importScripts: ['/push-sw.js'],
             // Only the built shell is precached: nothing under /api is ever listed because the glob runs over dist/.
-            globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
+            // The fonts (woff2) too: without them a cold start with no signal falls back to the system faces.
+            globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest,woff2}'],
             // deckgym's replay viewer (D-014) is opened now and then: not worth 1,6 MB of precache. The engine of the
             // browser (T-015, 5 MB) is fetched by its Web Worker when a game needs it, and kept (runtimeCaching).
             globIgnores: ['viewer/**', 'engine/**'],
             navigateFallback: '/index.html',
             // The login page is served by the API and must never be answered with the SPA shell.
             // T-015: /engine/ too, so the engine's source (Más → Acerca de) opens as a file, not as the app.
-            navigateFallbackDenylist: [/^\/api/, /^\/login/, /^\/healthz/, /^\/viewer\//, /^\/engine\//],
+            // /licenses/ as well: the licence texts linked from Más → Acerca de are files of the build.
+            navigateFallbackDenylist: [
+              /^\/api/,
+              /^\/login/,
+              /^\/healthz/,
+              /^\/viewer\//,
+              /^\/engine\//,
+              /^\/licenses\//,
+            ],
             cleanupOutdatedCaches: true,
             clientsClaim: true,
             skipWaiting: true,

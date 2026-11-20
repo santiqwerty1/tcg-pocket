@@ -1,6 +1,6 @@
 # @tcg/web · PWA de TCG Pocket
 
-Interfaz de la app (React 19 + Vite 8 + Tailwind 4 + shadcn/ui + TanStack Query + react-router). Texto primero, pensada para usar con una mano en el celular (barra inferior de cinco destinos, objetivos táctiles de 44 px) y cómoda en escritorio. Sigue el tema claro u oscuro del sistema.
+Interfaz de la app (React 19 + Vite 8 + Tailwind 4 + shadcn/ui + TanStack Query + react-router). Texto primero, pensada para usar con una mano en el celular (barra inferior de cinco destinos, objetivos táctiles de 44 px) y cómoda en escritorio. El tema es oscuro por defecto y se elige en cada dispositivo (Más → Ajustes de la app → Interfaz: oscuro, claro o el del sistema).
 
 ## Correr en desarrollo
 
@@ -29,7 +29,7 @@ La API sirve `dist/` detrás del middleware de sesión (`WEB_DIST`).
 
 | Qué | Dónde |
 |---|---|
-| Config de Vite, proxy de desarrollo, **PWA** (`vite-plugin-pwa`: manifest con atajos y `share_target`, `registerType: 'autoUpdate'`, `navigateFallback: '/index.html'`, denylist `/api`, `/login`, `/healthz`, `/viewer/`; caché de imágenes de cartas) | `vite.config.ts` |
+| Config de Vite, proxy de desarrollo, **PWA** (`vite-plugin-pwa`: manifest con atajos y `share_target`, `registerType: 'autoUpdate'`, `navigateFallback: '/index.html'`, denylist `/api`, `/login`, `/healthz`, `/viewer/`, `/engine/`, `/licenses/`; precache del shell y de las fuentes; caché de imágenes de cartas) | `vite.config.ts` |
 | Código extra del service worker: Web Push (Fase 18) y «Compartir» hacia la app (Fase 41) | `public/push-sw.js` |
 | Registro del service worker (solo en producción) | `src/pwa.ts`, llamado desde `src/main.tsx` |
 | Limpieza ante 401 o cierre de sesión (`caches.delete` + `unregister` + `/login`) | `src/api/session.ts` |
@@ -41,7 +41,9 @@ La API sirve `dist/` detrás del middleware de sesión (`WEB_DIST`).
 | Páginas | `src/pages/*/` (partidas = «Hoy», mazos, coleccion, cartas, sobres, torneos, simulacion, laboratorio, jugar, eventos, mas) |
 | Componentes propios (`Stat` con n e IC 95 %, chips de energía, stepper, estados de lista) | `src/components/` |
 | Componentes generados con la CLI de shadcn (MIT; `components.json`) | `src/components/ui/` |
-| Tema (variables, modo oscuro por `prefers-color-scheme`, fuente del sistema) | `src/index.css` |
+| Tema: tokens de la maqueta D en dos temas (`data-theme="dark" \| "light"` en `<html>`), tipografía y `@font-face` | `src/index.css` |
+| El tema de este dispositivo (`localStorage['tcg.look']`): antes del primer pintado y desde React (`useLook`) | `public/look.js`, `src/lib/look.ts` |
+| Fuentes propias (Barlow Semi Condensed e Inter, OFL 1.1) y su licencia | `src/assets/fonts/`, `public/licenses/fonts-ofl.txt` |
 | Íconos de la PWA (generados sin dependencias con `node scripts/make-icons.mjs`) | `public/icons/`, `public/favicon.svg`, `public/apple-touch-icon.png` |
 
 ## Rutas

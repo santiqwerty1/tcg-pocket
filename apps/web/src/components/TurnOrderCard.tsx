@@ -45,7 +45,8 @@ export function TurnOrderCard({
         <div className="flex flex-col gap-0.5 rounded-md bg-muted/50 px-2 py-1.5">
           <p className="flex items-center gap-2 text-sm">
             <span>
-              Con la moneda pareja: <span className="font-semibold tabular">{formatRateValue(coinAdjusted.value)}</span>
+              Con la moneda pareja:{' '}
+              <span className="font-semibold tabular-nums">{formatRateValue(coinAdjusted.value)}</span>
             </span>
             {coinAdjusted.orientative ? <OrientativeBadge /> : null}
           </p>

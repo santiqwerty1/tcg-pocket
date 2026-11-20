@@ -216,7 +216,7 @@ export function GoalsSection({
         <Label className="flex min-h-11 items-center justify-between gap-2 text-sm font-normal">
           <span>
             Apuntar a la versión de torneo
-            <span className="block text-xs text-muted-foreground">
+            <span className="block font-sans text-xs text-muted-foreground">
               Tus listas están armadas con lo que tenés; con esto se buscan las cartas de la lista de torneo de su
               arquetipo (la más sólida de la era, jugada 5 veces o más). Un mazo sin lista de torneo usa la suya.
             </span>
@@ -282,7 +282,7 @@ export function GoalsSection({
             {missionsGoal
               ? `${missionsGoal.slots} huecos de misiones con ${missionsGoal.missingCopies} copias por conseguir; pesan ${Math.round(missionsGoal.weight * 100)}${PERCENT} del puntaje (lo mismo que cada objetivo prendido)${missionsGoal.outOfPacks > 0 ? `. ${missionsGoal.outOfPacks} no salen de ningún sobre a la venta` : ''}.`
               : 'Las misiones de colección incompletas: cada hueco pesa por las copias que le faltan.'}{' '}
-            <Link to="/coleccion/misiones" className="text-primary hover:underline">
+            <Link to="/coleccion/misiones" className="text-primary underline underline-offset-4">
               Ver las misiones
             </Link>
           </p>

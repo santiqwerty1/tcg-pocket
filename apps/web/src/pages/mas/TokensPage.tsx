@@ -142,7 +142,9 @@ export function TokensPage() {
                 <span>
                   <span className="font-mono">{scope}</span>
                   {SCOPE_HINT[scope] ? (
-                    <span className="block text-xs font-normal text-muted-foreground">{SCOPE_HINT[scope]}</span>
+                    <span className="block font-sans text-xs font-normal text-muted-foreground">
+                      {SCOPE_HINT[scope]}
+                    </span>
                   ) : null}
                 </span>
               </Label>

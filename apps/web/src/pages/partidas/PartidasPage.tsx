@@ -14,7 +14,7 @@ function ClassifyLink() {
   // Self-review: only the count (the groups and their suggestions are the classify page's).
   const pending = useUnclassifiedCount().data?.matches ?? 0
   return (
-    <Link to="/partidas/clasificar" className="text-sm text-primary hover:underline">
+    <Link to="/partidas/clasificar" className="text-sm text-primary underline underline-offset-4">
       Clasificar rivales
       {pending > 0 ? ` (${pending === 1 ? 'una partida sin clasificar' : `${pending} partidas sin clasificar`})` : ''}
     </Link>
@@ -76,10 +76,10 @@ export function PartidasPage() {
       <div className="-mt-4 flex flex-wrap gap-x-4 gap-y-1">
         <ClassifyLink />
         {/* Self-review of ranked: reachable between seasons too (to load the next one). */}
-        <Link to="/partidas/temporada" className="text-sm text-primary hover:underline">
+        <Link to="/partidas/temporada" className="text-sm text-primary underline underline-offset-4">
           Temporada de ranked
         </Link>
-        <Link to="/partidas/importar" className="text-sm text-primary hover:underline">
+        <Link to="/partidas/importar" className="text-sm text-primary underline underline-offset-4">
           Importar desde la hoja
         </Link>
       </div>

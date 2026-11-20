@@ -99,7 +99,7 @@ function EngineChangeNote({ change }: { change: NonNullable<JobDetail['engineCha
       ) : (
         <>
           lo jugado con el viejo quedó aparte, en{' '}
-          <Link to={`/simulacion/${change.oldResults}`} className="text-primary hover:underline">
+          <Link to={`/simulacion/${change.oldResults}`} className="text-primary underline underline-offset-4">
             la simulación #{change.oldResults}
           </Link>
           .
@@ -170,7 +170,7 @@ function MatrixResults({ job }: { job: JobDetail }) {
             {expanded ? (
               <div className="flex flex-col gap-1 border-t bg-muted/30 px-3 py-2">
                 {link ? (
-                  <Link to={link} className="text-xs text-primary hover:underline">
+                  <Link to={link} className="text-xs text-primary underline underline-offset-4">
                     Ver {snapshot?.deckId ? 'el mazo' : 'la lista'}
                   </Link>
                 ) : null}
@@ -346,7 +346,7 @@ function OptimizeConfirmation({ job }: { job: JobDetail }) {
           <StatusBadge status={confirmation.status} />
         )}
         {confirmation.jobId !== null ? (
-          <Link to={`/simulacion/${confirmation.jobId}`} className="text-xs text-primary hover:underline">
+          <Link to={`/simulacion/${confirmation.jobId}`} className="text-xs text-primary underline underline-offset-4">
             simulación #{confirmation.jobId}
           </Link>
         ) : null}

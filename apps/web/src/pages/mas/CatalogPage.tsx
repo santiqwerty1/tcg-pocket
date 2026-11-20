@@ -150,7 +150,7 @@ function PreviewPanel({
         </div>
       ) : null}
       {preview.destructive ? (
-        <label className="flex items-start gap-2 rounded-lg bg-destructive/10 p-2 text-destructive">
+        <label className="flex items-start gap-2 rounded-lg bg-destructive/8 p-2 font-sans text-destructive">
           <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span className="flex-1">
             {reasons.length > 0

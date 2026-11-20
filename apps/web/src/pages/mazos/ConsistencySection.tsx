@@ -22,7 +22,7 @@ function Measured({ title, data }: { title: string; data: { job: JobSummary; con
     <div className="flex flex-col gap-1">
       <h3 className="text-sm font-medium">{title}</h3>
       <ConsistencyTable data={data.consistency} />
-      <Link to={`/simulacion/${data.job.id}`} className="text-xs text-primary hover:underline">
+      <Link to={`/simulacion/${data.job.id}`} className="text-xs text-primary underline underline-offset-4">
         Simulación #{data.job.id} · semilla {data.job.baseSeed}
       </Link>
     </div>

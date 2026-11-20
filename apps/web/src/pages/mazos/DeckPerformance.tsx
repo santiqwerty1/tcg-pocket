@@ -205,7 +205,7 @@ export function DeckPerformance({
           ) : null}
           <Link
             to={`/partidas/historial?mazo=${encodeURIComponent(deckId)}`}
-            className="text-sm text-primary underline-offset-4 hover:underline"
+            className="text-sm text-primary underline underline-offset-4"
           >
             Ver {games === 1 ? 'la partida' : `las ${formatNumber(games)} partidas`}
           </Link>

@@ -721,7 +721,7 @@ export function NewSimulationPage() {
             {kind !== 'optimize' ? (
               <div className="flex items-start gap-2">
                 <Checkbox id="sim-cache" checked={useCache} onCheckedChange={(value) => setUseCache(value === true)} />
-                <label htmlFor="sim-cache" className="text-muted-foreground">
+                <label htmlFor="sim-cache" className="font-sans text-muted-foreground">
                   Copiar los cruces que ya se jugaron exactamente igual (misma semilla, mazos, bots y motor) en lugar de
                   jugarlos otra vez.
                 </label>
@@ -734,7 +734,7 @@ export function NewSimulationPage() {
                   checked={skipNotSimulable}
                   onCheckedChange={(value) => setSkipNotSimulable(value === true)}
                 />
-                <label htmlFor="sim-skip">
+                <label htmlFor="sim-skip" className="font-sans">
                   {plural(notSimulable, 'mazo no es simulable', 'mazos no son simulables')} (motivos arriba). Saltearlos
                   y simular el resto.
                 </label>

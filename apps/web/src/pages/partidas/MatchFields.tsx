@@ -208,7 +208,7 @@ export function DeckChips({
           type="button"
           variant="outline"
           aria-pressed={value === deck.id}
-          className="shrink-0 snap-start aria-pressed:border-primary aria-pressed:bg-primary/10 aria-pressed:ring-2 aria-pressed:ring-primary"
+          className="shrink-0 snap-start aria-pressed:border-primary aria-pressed:bg-primary/10 aria-pressed:ring-2 aria-pressed:ring-primary aria-pressed:focus-visible:border-ring aria-pressed:focus-visible:ring-ring aria-pressed:focus-visible:inset-ring-2 aria-pressed:focus-visible:inset-ring-primary"
           onClick={() => onChange(deck.id)}
         >
           <span className="max-w-52 truncate">{deck.name}</span>

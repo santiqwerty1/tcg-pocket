@@ -52,7 +52,7 @@ export function MatchList({ matches, showDeck = true }: { matches: Match[]; show
                     <span className="text-muted-foreground">sin rival anotado</span>
                   )}
                 </span>
-                <span className="block truncate text-xs text-muted-foreground">
+                <span className="block truncate font-heading text-xs text-muted-foreground">
                   {details.join(' · ')}
                   {match.note ? ` · ${match.note}` : ''}
                 </span>

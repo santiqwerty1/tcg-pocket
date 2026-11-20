@@ -191,7 +191,10 @@ export function CalibrationPage() {
             {calibrations.data.map((item) => (
               <li key={item.id} className="flex flex-col gap-1.5 p-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Link to={`/simulacion/calibracion/${item.id}`} className="font-medium text-primary hover:underline">
+                  <Link
+                    to={`/simulacion/calibracion/${item.id}`}
+                    className="font-medium text-primary underline underline-offset-4"
+                  >
                     {item.botEs}
                   </Link>
                   <StatusBadge status={item.status} />
@@ -389,7 +392,7 @@ export function CalibrationDetailPage() {
               {calibration.data.job.botEs} · {calibration.data.job.era} · {calibration.data.job.lists} listas ·{' '}
               {calibration.data.job.gamesPerPair} por cruce · motor {shortSha(calibration.data.job.engineRev)}
             </span>
-            <Link to={`/simulacion/${calibration.data.job.id}`} className="text-primary hover:underline">
+            <Link to={`/simulacion/${calibration.data.job.id}`} className="text-primary underline underline-offset-4">
               Ver la simulación #{calibration.data.job.id}
             </Link>
           </div>
