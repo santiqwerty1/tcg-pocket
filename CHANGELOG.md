@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-11-15 desde la etiqueta `v1.0.0` (434 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-11-20 desde la etiqueta `v1.0.0` (438 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -88,6 +88,7 @@ _Borrador generado al 2026-11-15 desde la etiqueta `v1.0.0` (434 commits). Escri
 
 ### Corregido
 
+- stock snapshot waits for a connection like any query; freeze cached tournament fields (R-014) (#191, H-015) `4332401`
 - a CLI takes at most 6 connections; pool tests on the real pg-pool (R-014) (#186) `8926d97`
 - keep the pool's extra connections a minute idle (R-014) (#180) `fd08b01`
 - a raw transaction whose ROLLBACK fails destroys its connection (infra-egress follow-up) (#180) `1b86aa4`
@@ -281,6 +282,7 @@ _Borrador generado al 2026-11-15 desde la etiqueta `v1.0.0` (434 commits). Escri
 
 ### Cambiado
 
+- read only what changed of tournaments, import rows and stock (R-014) (R-008) `254893e`
 - the claim's job update returns only its id (infra-egress) `e59f9f6`
 - read jobs without their params in the queue and the summaries (infra-egress) `14f81f2`
 - read only the head of the last sync in the minute check (infra-egress) (#103) `1341c7b`
@@ -292,6 +294,8 @@ _Borrador generado al 2026-11-15 desde la etiqueta `v1.0.0` (434 commits). Escri
 
 ### Documentado
 
+- mock-up D «Fusión» for the UI renewal (#189) (#182) `5510d1a`
+- 15/11 — Supabase egress on 14 and 15/11 and what a day is made of (R-014) `ff116cc`
 - 13/11 — C1 results, #186 and the idle egress; number 69.6–69.7 (R-014, T-023) `3b06213`
 - the pooler limit holds for the API with one CLI (R-014) (#186) `6779df4`
 - R-014, P-015 and H-061 pass posta check (priorities 1–5, P-015's «Aplicación») (R-014, P-015, H-061) `341d0aa`
