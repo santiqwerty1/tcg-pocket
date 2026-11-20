@@ -27,6 +27,7 @@ import {
   fieldPerGame,
   formatRateDifferenceEs,
   type LimitlessDecklist,
+  type LimitlessDecklistCard,
   type ListAgainstCollection,
   type ListCard,
   type ListKeyKind,
@@ -72,6 +73,7 @@ import { dateOnly, todayInOwnerZone } from '../config/time-zone.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { TournamentRowsCache } from './tournament-rows.cache.js'
 import { TournamentDataVersion, TournamentSettings } from './tournament-settings.js'
 import { TournamentSyncService } from './tournament-sync.service.js'
 import type {
@@ -111,6 +113,38 @@ export const LIMITLESS_ATTRIBUTION = 'Datos de torneo: Limitless (play.limitless
 export const OPPONENT_MIN_LISTS = 5
 /** Each era dataset holds ~12 k lists in memory: two are enough (current and one other) on a 512 MB machine. */
 const CACHE_SIZE = 2
+/**
+ * R-014: distinct list lines kept as shared objects (a few thousand per era); past this the pool starts over, which only
+ * costs memory, never a different result.
+ */
+const LINE_POOL_MAX = 50_000
+
+/** A stored list as the dataset reads it, with its row id (R-014: kept between versions, read in insertion order). */
+type CachedEntry = StoredEntry & { readonly rowId: number }
+/** A stored round with the games of its phase (H-009) and its row id. */
+type CachedPairing = StoredPairing & { readonly rowId: number }
+
+const byRowId = (a: { rowId: number }, b: { rowId: number }) => a.rowId - b.rowId
+
+/** What moves whenever a tournament's lists can change: the sync rewrites them only with these, in one transaction. */
+function entriesStamp(t: { fetchedAt: Date | null; standingsSha256: string | null }): string | null {
+  return t.fetchedAt === null ? null : `${t.fetchedAt.getTime()}|${t.standingsSha256 ?? ''}`
+}
+
+/**
+ * What moves whenever a tournament's rounds can change (`pairings_fetched_at`, set with every rewrite of them) or the
+ * games of its phases (`details`, rewritten with the lists, so with `fetched_at`). Without either, read every time.
+ */
+function pairingsStamp(t: { fetchedAt: Date | null; pairingsFetchedAt: Date | null }): string | null {
+  return t.fetchedAt === null || t.pairingsFetchedAt === null
+    ? null
+    : `${t.fetchedAt.getTime()}|${t.pairingsFetchedAt.getTime()}`
+}
+
+/** The results a round can have, as one shared string each. */
+const RESULTS = new Map<string, StoredPairing['result']>(
+  (['p1', 'p2', 'tie', 'double_loss', 'bye'] as const).map((result) => [result, result]),
+)
 
 export interface ScopeQuery {
   era?: string | undefined
@@ -151,6 +185,13 @@ export class TournamentsService {
    */
   private building = new Map<string, { index: CatalogIndex; promise: Promise<TournamentDataset> }>()
   private buildQueue: Promise<unknown> = Promise.resolve()
+  /**
+   * R-014: each tournament's lists and rounds, kept across data versions under their stamps (the datasets above are
+   * rebuilt from them; only new or re-downloaded tournaments are read again). As many scopes as datasets.
+   */
+  private readonly entryRows: TournamentRowsCache<CachedEntry>
+  private readonly pairingRows: TournamentRowsCache<CachedPairing>
+  private readonly lines = new Map<string, LimitlessDecklistCard>()
 
   constructor(
     @Inject(ENV) private readonly env: Env,
@@ -163,6 +204,8 @@ export class TournamentsService {
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(TournamentsService.name)
+    this.entryRows = new TournamentRowsCache(CACHE_SIZE, () => this.version.rows())
+    this.pairingRows = new TournamentRowsCache(CACHE_SIZE, () => this.version.rows())
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -222,45 +265,33 @@ export class TournamentsService {
         players: { gte: scope.minPlayers },
         date: { gte: range.from, ...(range.to ? { lt: range.to } : {}) },
       },
-      select: { id: true, name: true, date: true, format: true, players: true },
-    })
-    const rows = await this.prisma.tournamentEntry.findMany({
-      where: { tournamentId: { in: tournaments.map((t) => t.id) } },
       select: {
-        tournamentId: true,
-        playerId: true,
-        playerName: true,
-        country: true,
-        placing: true,
-        drop: true,
-        wins: true,
-        losses: true,
-        ties: true,
-        archetypeId: true,
-        archetypeName: true,
-        archetypeIcons: true,
-        energies: true,
-        decklist: true,
+        id: true,
+        name: true,
+        date: true,
+        format: true,
+        players: true,
+        fetchedAt: true,
+        standingsSha256: true,
       },
     })
-    const entries: StoredEntry[] = rows.map((row) => ({
-      tournamentId: row.tournamentId,
-      playerId: row.playerId,
-      playerName: row.playerName,
-      country: row.country,
-      placing: row.placing,
-      drop: row.drop,
-      record: { wins: row.wins, losses: row.losses, ties: row.ties },
-      archetype:
-        row.archetypeId === null
-          ? null
-          : { id: row.archetypeId, name: row.archetypeName ?? row.archetypeId, icons: row.archetypeIcons },
-      decklist: row.decklist as LimitlessDecklist | null,
-      energies: row.energies,
-    }))
+    // R-014: the lists of the tournaments already held under the same stamp are not read again.
+    const { rows: entries, read } = await this.entryRows.rowsOf(
+      `${scope.era}|${scope.format}|${scope.minPlayers}`,
+      tournaments.map((t) => ({ id: t.id, stamp: entriesStamp(t) })),
+      (ids) => this.readEntries(ids),
+    )
     const dataset = buildDataset({
-      tournaments: tournaments as StoredTournament[],
-      entries,
+      tournaments: tournaments.map(({ id, name, date, format, players }) => ({
+        id,
+        name,
+        date,
+        format,
+        players,
+      })) as StoredTournament[],
+      // By row id, the order they were stored in (the query used to have none, and the table came back close to it):
+      // the order breaks ties, such as an archetype's shown name, so it is fixed now.
+      entries: entries.sort(byRowId),
       index: scope.index,
       sets: scope.sets,
       era: scope.era,
@@ -277,6 +308,9 @@ export class TournamentsService {
         era: scope.era,
         format: scope.format,
         lists: dataset.entries.length,
+        // R-014: tournaments whose lists were read now, and those held between versions.
+        tournamentsRead: read,
+        tournamentsHeld: this.entryRows.size,
         ms: Date.now() - started,
         rssMb: Math.round(memory.rss / 1048576),
         heapUsedMb: Math.round(memory.heapUsed / 1048576),
@@ -296,24 +330,150 @@ export class TournamentsService {
     const hit = this.matchupCache.find((entry) => entry.dataset === dataset)
     if (hit) return hit.matchups
     const ids = dataset.tournaments.map((t) => t.id)
+    // R-014: the rounds of the tournaments already held under the same stamps are not read again.
+    const stamps = await this.prisma.tournament.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, fetchedAt: true, pairingsFetchedAt: true },
+    })
+    const { rows, read } = await this.pairingRows.rowsOf(
+      `${dataset.era}|${dataset.format}|${dataset.minPlayers}`,
+      stamps.map((t) => ({ id: t.id, stamp: pairingsStamp(t) })),
+      (missing) => this.readPairings(missing),
+    )
+    const matchups = buildMatchups(dataset, rows.sort(byRowId))
+    this.matchupCache = [{ dataset, matchups }, ...this.matchupCache].slice(0, CACHE_SIZE)
+    // R-008 / R-014: what the rounds kept between versions take, next to the lists' log of each build.
+    const memory = process.memoryUsage()
+    this.logger.info(
+      {
+        era: dataset.era,
+        format: dataset.format,
+        rounds: rows.length,
+        tournamentsRead: read,
+        tournamentsHeld: this.pairingRows.size,
+        heapUsedMb: Math.round(memory.heapUsed / 1048576),
+      },
+      'tournament matchups built',
+    )
+    return matchups
+  }
+
+  /** The stored lists of `ids`, by tournament, as the dataset reads them (R-014: kept between versions). */
+  private async readEntries(ids: readonly string[]): Promise<Map<string, CachedEntry[]>> {
+    const rows = await this.prisma.tournamentEntry.findMany({
+      where: { tournamentId: { in: [...ids] } },
+      select: {
+        id: true,
+        tournamentId: true,
+        playerId: true,
+        playerName: true,
+        country: true,
+        placing: true,
+        drop: true,
+        wins: true,
+        losses: true,
+        ties: true,
+        archetypeId: true,
+        archetypeName: true,
+        archetypeIcons: true,
+        energies: true,
+        decklist: true,
+      },
+    })
+    // One string per tournament id for all its rows, not one per row (R-008).
+    const sameId = new Map(ids.map((id) => [id, id]))
+    const byTournament = new Map<string, CachedEntry[]>()
+    for (const row of rows) {
+      const tournamentId = sameId.get(row.tournamentId) ?? row.tournamentId
+      const entry: CachedEntry = {
+        rowId: row.id,
+        tournamentId,
+        playerId: row.playerId,
+        playerName: row.playerName,
+        country: row.country,
+        placing: row.placing,
+        drop: row.drop,
+        // Kept between data versions and passed by reference into every rebuilt dataset: frozen, so a future in-place
+        // mutation fails loudly instead of corrupting the next version (review of #191).
+        record: Object.freeze({ wins: row.wins, losses: row.losses, ties: row.ties }),
+        archetype:
+          row.archetypeId === null
+            ? null
+            : Object.freeze({
+                id: row.archetypeId,
+                name: row.archetypeName ?? row.archetypeId,
+                icons: Object.freeze(row.archetypeIcons) as string[],
+              }),
+        decklist: this.sharedLines(row.decklist as LimitlessDecklist | null),
+        energies: Object.freeze(row.energies) as string[],
+      }
+      const list = byTournament.get(tournamentId)
+      if (list) list.push(entry)
+      else byTournament.set(tournamentId, [entry])
+    }
+    return byTournament
+  }
+
+  /**
+   * R-008 / R-014: a list with its lines as shared, frozen objects. The era's lists repeat a few thousand distinct lines,
+   * so the lists kept between versions take about a third of the memory (measured: ~14 MB → ~5 MB for 8,700 lists).
+   * Same values, so the same dataset.
+   */
+  private sharedLines(decklist: LimitlessDecklist | null): LimitlessDecklist | null {
+    if (!decklist || typeof decklist !== 'object') return decklist
+    const lines = (cards: LimitlessDecklistCard[]) =>
+      Array.isArray(cards) ? cards.map((card) => this.sharedLine(card)) : cards
+    return { ...decklist, pokemon: lines(decklist.pokemon), trainer: lines(decklist.trainer) }
+  }
+
+  private sharedLine(card: LimitlessDecklistCard): LimitlessDecklistCard {
+    const key = JSON.stringify(card)
+    const held = this.lines.get(key)
+    if (held) return held
+    if (this.lines.size >= LINE_POOL_MAX) this.lines.clear()
+    const line = Object.freeze({ ...card })
+    this.lines.set(key, line)
+    return line
+  }
+
+  /** The stored rounds of `ids`, by tournament, with the games of their phase (R-014: kept between versions). */
+  private async readPairings(ids: readonly string[]): Promise<Map<string, CachedPairing[]>> {
     const [rows, details] = await Promise.all([
       this.prisma.tournamentPairing.findMany({
-        where: { tournamentId: { in: ids } },
-        select: { tournamentId: true, phase: true, round: true, player1: true, player2: true, result: true },
+        where: { tournamentId: { in: [...ids] } },
+        select: { id: true, tournamentId: true, phase: true, round: true, player1: true, player2: true, result: true },
       }),
-      this.prisma.tournament.findMany({ where: { id: { in: ids } }, select: { id: true, details: true } }),
+      this.prisma.tournament.findMany({ where: { id: { in: [...ids] } }, select: { id: true, details: true } }),
     ])
     // H-009: the games of a match in each phase (BO1, BO3, BO5), to read the matchups per game.
     const phases = new Map(details.map((row) => [row.id, phaseBestOf(row.details)]))
-    const matchups = buildMatchups(
-      dataset,
-      (rows as StoredPairing[]).map((row) => ({
-        ...row,
+    const sameId = new Map(ids.map((id) => [id, id]))
+    // A player plays several rounds: one string for all of them (R-008).
+    const players = new Map<string, string>()
+    const player = (id: string) => {
+      const held = players.get(id)
+      if (held !== undefined) return held
+      players.set(id, id)
+      return id
+    }
+    const byTournament = new Map<string, CachedPairing[]>()
+    for (const row of rows) {
+      const tournamentId = sameId.get(row.tournamentId) ?? row.tournamentId
+      const pairing: CachedPairing = {
+        rowId: row.id,
+        tournamentId,
+        phase: row.phase,
+        round: row.round,
+        player1: player(row.player1),
+        player2: row.player2 === null ? null : player(row.player2),
+        result: RESULTS.get(row.result) ?? (row.result as StoredPairing['result']),
         bestOf: phases.get(row.tournamentId)?.get(row.phase) ?? null,
-      })),
-    )
-    this.matchupCache = [{ dataset, matchups }, ...this.matchupCache].slice(0, CACHE_SIZE)
-    return matchups
+      }
+      const list = byTournament.get(tournamentId)
+      if (list) list.push(pairing)
+      else byTournament.set(tournamentId, [pairing])
+    }
+    return byTournament
   }
 
   private expectedView(matchups: Matchups, dataset: TournamentDataset, id: string): ExpectedVsMetaView | null {

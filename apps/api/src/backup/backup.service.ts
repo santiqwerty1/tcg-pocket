@@ -9,6 +9,7 @@ import { CatalogService } from '../catalog/catalog.service.js'
 import { CHAT_MOVED_KEY } from '../chat/chat-moved.service.js'
 import { REMOTE_KEYS, seenExpansionsOf } from '../collection/collection.service.js'
 import { DotggLinkStore } from '../collection/dotgg-link.store.js'
+import { ImportRowsCache } from '../collection/import-rows.cache.js'
 import { ENV, type Env } from '../config/env.js'
 import { dateOnly } from '../config/time-zone.js'
 import type { Prisma } from '../generated/prisma/client.js'
@@ -174,6 +175,7 @@ export class BackupService {
     private readonly catalog: CatalogService,
     private readonly tournamentData: TournamentDataVersion,
     private readonly links: DotggLinkStore,
+    private readonly importRows: ImportRowsCache,
     @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
   ) {
@@ -507,17 +509,23 @@ export class BackupService {
         details: unknownCardIds,
       })
     }
-    await this.prisma.$transaction(
-      async (tx) => {
-        // Codex on #143: it rewrites `rank_changes` (and the matches), so the ranks' lock first, as every write of them.
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
-        // 2/11: and the pokemon-zone imports and the settings they write: a save waits, or the restore waits for it.
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${POKEMON_ZONE_LOCK}::bigint)`
-        await this.restoreInto(tx, document, true)
-      },
-      { timeout: RESTORE_TIMEOUT_MS, maxWait: 10_000 },
+    // R-014: imports come back with their own ids and the sequence goes back, so an id may become another import: the
+    // import rows kept in memory are not served while the restore runs, and are forgotten after it.
+    await this.importRows.whileReplacing(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          // Codex on #143: it rewrites `rank_changes` (and the matches), so the ranks' lock first, as every write of them.
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+          // 2/11: and the pokemon-zone imports and the settings they write: a save waits, or the restore waits for it.
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${POKEMON_ZONE_LOCK}::bigint)`
+          await this.restoreInto(tx, document, true)
+        },
+        { timeout: RESTORE_TIMEOUT_MS, maxWait: 10_000 },
+      ),
     )
-    this.tournamentData.bump()
+    // R-014: a restore does not write tournament rows, but the ones kept between versions are read again anyway: it is
+    // rare, and nothing kept should outlive a restore of the database.
+    this.tournamentData.bump({ rows: true })
     if (document.settings.some((s) => s.key === 'trackerAutoSync' && s.value === true))
       notices.push('La sincronización automática del tracker esperará 6 horas después de restaurar.')
     if (document.settings.some((s) => s.key === 'dotggAutoSync' && s.value === true))

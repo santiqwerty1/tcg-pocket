@@ -69,6 +69,7 @@ import type {
   StockPatchResult,
 } from './collection-views.js'
 import { DOTGG_LINK_KEY, DotggLinkStore } from './dotgg-link.store.js'
+import { ImportRowsCache } from './import-rows.cache.js'
 
 export interface GroupsQuery {
   q?: string | undefined
@@ -233,6 +234,7 @@ export class CollectionService {
     private readonly prisma: PrismaService,
     private readonly repository: CollectionRepository,
     private readonly links: DotggLinkStore,
+    private readonly importRowsCache: ImportRowsCache,
   ) {}
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -299,10 +301,7 @@ export class CollectionService {
     const snapshots = new Map<number, Map<number, number>>()
     for (const item of recent.length > 1 ? [imports[0], ...recent] : []) {
       if (!item || snapshots.has(item.id)) continue
-      const rows = await this.prisma.collectionImportRow.findMany({
-        where: { importId: item.id },
-        select: { internalId: true, numberOwned: true },
-      })
+      const rows = await this.importRows(item.id)
       const owned = new Map<number, number>()
       for (const row of rows) owned.set(row.internalId, Math.max(owned.get(row.internalId) ?? 0, row.numberOwned))
       snapshots.set(item.id, owned)
@@ -947,16 +946,20 @@ export class CollectionService {
   // Helpers
   // ---------------------------------------------------------------------------------------------------------------
 
-  /** The import with its rows; the raw CSV blob stays in the database (nothing here needs it). */
-  private async requireImport(rawId: string): Promise<ImportRecord & { rows: ImportRowLike[] }> {
+  /**
+   * The import with its rows; the raw CSV blob stays in the database (nothing here needs it). The import is read every
+   * time, its rows only the first (R-014: they never change, `ImportRowsCache`).
+   */
+  private async requireImport(rawId: string): Promise<ImportRecord & { rows: readonly ImportRowLike[] }> {
     const id = parseNumericId(rawId, 'Importación')
-    const row = await this.prisma.collectionImport.findUnique({
-      where: { id },
-      include: { rows: true },
-      omit: { rawFileGz: true },
-    })
+    const row = await this.prisma.collectionImport.findUnique({ where: { id }, omit: { rawFileGz: true } })
     if (!row) throw new NotFoundException(`Importación ${rawId} no encontrada.`)
-    return row
+    return { ...row, rows: await this.importRows(id) }
+  }
+
+  /** An import's rows, as they were stored with it. */
+  private importRows(id: number) {
+    return this.importRowsCache.rowsOf(id, () => this.prisma.collectionImportRow.findMany({ where: { importId: id } }))
   }
 
   private async importBaseline(client: PoolClient, index: CatalogIndex) {

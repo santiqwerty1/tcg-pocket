@@ -11,6 +11,7 @@ import type { CatalogService } from '../catalog/catalog.service.js'
 import { CatalogRepository, type SyncOutcome } from '../catalog/catalog-repository.js'
 import { CollectionService } from '../collection/collection.service.js'
 import { DotggSync } from '../collection/dotgg-sync.service.js'
+import { ImportRowsCache } from '../collection/import-rows.cache.js'
 import { TrackerSync } from '../collection/tracker-sync.service.js'
 import type { Env } from '../config/env.js'
 import type { PrismaService } from './prisma.service.js'
@@ -96,7 +97,13 @@ describe('raw pool clients (infra-egress)', () => {
       [
         'the import preview',
         (prisma: PrismaService) => {
-          const service = new CollectionService({} as CatalogService, prisma, {} as never, {} as never)
+          const service = new CollectionService(
+            {} as CatalogService,
+            prisma,
+            {} as never,
+            {} as never,
+            new ImportRowsCache(),
+          )
           const createRows = (service as unknown as { createRows: (...args: unknown[]) => Promise<unknown> }).createRows
           return createRows.call(
             service,
@@ -110,7 +117,7 @@ describe('raw pool clients (infra-egress)', () => {
         'the import apply',
         (prisma: PrismaService) => {
           const catalog = { requireIndex: () => ({}) } as unknown as CatalogService
-          const service = new CollectionService(catalog, prisma, {} as never, {} as never)
+          const service = new CollectionService(catalog, prisma, {} as never, {} as never, new ImportRowsCache())
           vi.spyOn(service as unknown as { requireImport: () => Promise<unknown> }, 'requireImport').mockResolvedValue({
             id: 7,
             status: 'pending',
