@@ -3,7 +3,7 @@
 // that the fonts are files of the app that the service worker keeps.
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { join, relative, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { THEME_COLOR } from '@/lib/look'
 
@@ -15,13 +15,13 @@ type Theme = (typeof THEMES)[number]
 const SRC = resolve(ROOT, 'src')
 const read = (path: string) => readFileSync(resolve(SRC, path), 'utf8')
 
-/** Every source of the app that is not a test, as [path from src, text]. */
+/** Every source of the app that is not a test, as [path from src with «/» on every system, text]. */
 function sources(dir = SRC): [string, string][] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry): [string, string][] => {
     const path = join(dir, entry.name)
     if (entry.isDirectory()) return entry.name === 'test' ? [] : sources(path)
     if (!/\.tsx?$/.test(entry.name) || /\.test\.tsx?$/.test(entry.name)) return []
-    return [[relative(SRC, path), readFileSync(path, 'utf8')]]
+    return [[relative(SRC, path).split(sep).join('/'), readFileSync(path, 'utf8')]]
   })
 }
 
@@ -227,7 +227,8 @@ describe('the tokens of src/index.css', () => {
     const EDGE = 3
 
     it.each(['--background', '--card'])('text on %s', (surface) => {
-      for (const text of ['--foreground', '--muted-foreground', '--destructive', '--success', '--warning']) {
+      // `--ring` is also written as text: the side whose turn it is and the hint next to the marked spots.
+      for (const text of ['--foreground', '--muted-foreground', '--destructive', '--success', '--warning', '--ring']) {
         expect(contrast(text, surface, theme), `${text} on ${surface}`).toBeGreaterThanOrEqual(TEXT)
       }
     })
@@ -346,6 +347,15 @@ describe('the tokens of src/index.css', () => {
         .filter(([, text]) => /\btext-(?:amber|yellow|orange)-\d/.test(text))
         .map(([path]) => path),
     ).toEqual([])
+  })
+
+  it('the primary has no hue, so what points at a marked spot takes the colour the spot is drawn with', () => {
+    // In the dark theme the primary and the text are the same colour to the eye: as a highlight it says nothing.
+    expect(contrast('--primary', '--foreground', 'dark')).toBeLessThan(1.1)
+    for (const file of ['pages/jugar/GamePage.tsx', 'pages/jugar/PuzzlePage.tsx']) {
+      expect(read(file), file).toMatch(/className="[^"]*\btext-ring\b[^"]*">Tocá un lugar marcado</)
+    }
+    expect(read('components/board/Table.tsx')).toMatch(/target && 'board-target [^']*\bring-ring\b/)
   })
 })
 

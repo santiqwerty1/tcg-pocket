@@ -1,7 +1,7 @@
 /**
  * The look of the app on this device: for now, the theme. The choice lives in `localStorage['tcg.look']` as
  * `{ "theme": "dark" | "light" | "system" }` (dark when nothing valid is stored) and reaches the page as
- * `data-theme="dark" | "light"` on <html>, always resolved, plus the `theme-color` meta.
+ * `data-theme="dark" | "light"` on <html>, always resolved, plus the `color-scheme` and `theme-color` metas.
  *
  * `public/look.js` applies the same rules before the first paint (the CSP forbids an inline script); the two are
  * tested against the same cases in `look.test.ts`. It is not personal data: logging out keeps it.
@@ -58,11 +58,15 @@ export function resolveTheme(choice: ThemeChoice): ResolvedTheme {
   return systemTheme()?.matches ? 'light' : 'dark'
 }
 
-/** Puts the look on the page: the attribute the tokens hang from and the colour of the browser's bars. */
+/**
+ * Puts the look on the page: the attribute the tokens hang from, the scheme the browser paints with before the
+ * stylesheet is there (the `color-scheme` meta) and the colour of its bars.
+ */
 export function applyLook(look: Look = readLook()): ResolvedTheme {
   const resolved = resolveTheme(look.theme)
   if (typeof document === 'undefined') return resolved
   document.documentElement.setAttribute('data-theme', resolved)
+  document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', resolved)
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[resolved])
   return resolved
 }

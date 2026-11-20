@@ -39,21 +39,28 @@ function systemTurns(scheme: 'light' | 'dark') {
 
 const theme = () => document.documentElement.getAttribute('data-theme')
 const themeColor = () => document.querySelector('meta[name="theme-color"]')?.getAttribute('content')
+const colorScheme = () => document.querySelector('meta[name="color-scheme"]')?.getAttribute('content')
+const METAS = 'meta[name="theme-color"], meta[name="color-scheme"]'
 const stored = () => JSON.parse(localStorage.getItem(LOOK_KEY) ?? 'null') as unknown
 
 beforeEach(() => {
   system.light = false
   // As index.html leaves the page before anything runs.
   document.documentElement.setAttribute('data-theme', 'dark')
-  const meta = document.createElement('meta')
-  meta.setAttribute('name', 'theme-color')
-  meta.setAttribute('content', THEME_COLOR.dark)
-  document.head.append(meta)
+  for (const [name, content] of [
+    ['color-scheme', 'dark'],
+    ['theme-color', THEME_COLOR.dark],
+  ] as const) {
+    const meta = document.createElement('meta')
+    meta.setAttribute('name', name)
+    meta.setAttribute('content', content)
+    document.head.append(meta)
+  }
 })
 
 afterEach(() => {
   vi.restoreAllMocks()
-  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.remove()
+  for (const meta of document.querySelectorAll(METAS)) meta.remove()
   document.documentElement.removeAttribute('data-theme')
 })
 
@@ -97,11 +104,14 @@ describe.each(IMPLEMENTATIONS)('the theme of this device, by $name', ({ run }) =
     const other = expected === 'light' ? 'dark' : 'light'
     document.documentElement.setAttribute('data-theme', other)
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[other])
+    document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', other)
 
     run()
 
     expect(theme()).toBe(expected)
     expect(themeColor()).toBe(THEME_COLOR[expected])
+    // One scheme, never «dark light»: the browser would paint with the system's until the stylesheet arrives.
+    expect(colorScheme()).toBe(expected)
   })
 
   it('is dark, and does not throw, when the storage is blocked', () => {
@@ -109,16 +119,27 @@ describe.each(IMPLEMENTATIONS)('the theme of this device, by $name', ({ run }) =
       throw new Error('blocked')
     })
     document.documentElement.setAttribute('data-theme', 'light')
+    document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', 'light')
     expect(run).not.toThrow()
     expect(theme()).toBe('dark')
     expect(themeColor()).toBe(THEME_COLOR.dark)
+    expect(colorScheme()).toBe('dark')
   })
 
-  it('does not need the theme-color meta to be there', () => {
-    for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.remove()
+  it('does not need the metas to be there', () => {
+    for (const meta of document.querySelectorAll(METAS)) meta.remove()
     localStorage.setItem(LOOK_KEY, '{"theme":"light"}')
     expect(run).not.toThrow()
     expect(theme()).toBe('light')
+  })
+
+  it.each(['color-scheme', 'theme-color'] as const)('a missing %s meta does not stop the other', (missing) => {
+    document.querySelector(`meta[name="${missing}"]`)?.remove()
+    localStorage.setItem(LOOK_KEY, '{"theme":"light"}')
+    expect(run).not.toThrow()
+    expect(theme()).toBe('light')
+    if (missing === 'color-scheme') expect(themeColor()).toBe(THEME_COLOR.light)
+    else expect(colorScheme()).toBe('light')
   })
 })
 
@@ -128,14 +149,17 @@ describe('public/look.js and index.html', () => {
     expect(PRE_PAINT).not.toMatch(/\b(import|require)\b/)
   })
 
-  it('the page starts dark, with one theme-color, and loads the script from <head> after the meta it sets', () => {
+  it('the page starts dark, with one theme-color and one scheme, and loads the script from <head> after them', () => {
     const page = new DOMParser().parseFromString(INDEX_HTML, 'text/html')
     expect(page.documentElement.getAttribute('data-theme')).toBe('dark')
     const metas = page.querySelectorAll('meta[name="theme-color"]')
     expect(metas).toHaveLength(1)
     expect(metas[0]?.getAttribute('content')).toBe(THEME_COLOR.dark)
     expect(metas[0]?.hasAttribute('media')).toBe(false)
-    expect(page.querySelector('meta[name="color-scheme"]')?.getAttribute('content')).toBe('dark light')
+    // Only dark: with «dark light» a light system gets a light canvas before the stylesheet, and the app opens dark.
+    const schemes = page.querySelectorAll('meta[name="color-scheme"]')
+    expect(schemes).toHaveLength(1)
+    expect(schemes[0]?.getAttribute('content')).toBe('dark')
     const script = page.head.querySelector('script[src="/look.js"]')
     expect(script).not.toBeNull()
     // Not a module and not deferred: it has to run before the body is painted.
@@ -143,6 +167,7 @@ describe('public/look.js and index.html', () => {
     expect(script?.hasAttribute('defer')).toBe(false)
     expect(script?.hasAttribute('async')).toBe(false)
     expect(metas[0]?.compareDocumentPosition(script as Element)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(schemes[0]?.compareDocumentPosition(script as Element)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     // No inline script: the CSP would refuse it.
     for (const other of page.querySelectorAll('script')) expect(other.getAttribute('src')).toBeTruthy()
   })
@@ -163,6 +188,7 @@ describe('look.ts', () => {
     writeLook({ theme: 'light' })
     expect(theme()).toBe('light')
     expect(themeColor()).toBe(THEME_COLOR.light)
+    expect(colorScheme()).toBe('light')
     expect(stored()).toEqual({ theme: 'light' })
     expect(readLook()).toEqual({ theme: 'light' })
     // A reload: the page is back as index.html leaves it, and the stored choice puts it right again.
@@ -200,8 +226,10 @@ describe('look.ts', () => {
     systemTurns('light')
     expect(theme()).toBe('light')
     expect(themeColor()).toBe(THEME_COLOR.light)
+    expect(colorScheme()).toBe('light')
     systemTurns('dark')
     expect(theme()).toBe('dark')
+    expect(colorScheme()).toBe('dark')
 
     writeLook({ theme: 'dark' })
     systemTurns('light')

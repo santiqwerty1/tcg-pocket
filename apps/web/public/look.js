@@ -3,6 +3,7 @@
  * Same rules as src/lib/look.ts (src/lib/look.test.ts runs the two against the same cases): the choice of this device
  * is localStorage['tcg.look'] = { "theme": "dark" | "light" | "system" }; dark when there is nothing valid; «system»
  * is light only if the system asks for light. It must never throw: the storage can be blocked.
+ * The two metas follow the theme too: `color-scheme` is what the browser paints with until the stylesheet arrives.
  */
 ;(() => {
   let theme = 'dark'
@@ -16,6 +17,8 @@
   } catch {}
   try {
     document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark')
+    const scheme = document.querySelector('meta[name="color-scheme"]')
+    if (scheme) scheme.setAttribute('content', light ? 'light' : 'dark')
     const meta = document.querySelector('meta[name="theme-color"]')
     if (meta) meta.setAttribute('content', light ? '#f1eee8' : '#0a0e14')
   } catch {}
