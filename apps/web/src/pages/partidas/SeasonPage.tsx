@@ -89,7 +89,7 @@ export function RankPicker({
       <label className="flex min-w-0 flex-col gap-1 text-sm">
         <span className="text-muted-foreground">{label}</span>
         <select
-          className="h-11 rounded-lg border bg-background px-2 text-base"
+          className="h-11 rounded-lg border border-input bg-secondary px-2 text-base"
           value={rank}
           onChange={(event) => setRank(event.target.value)}
         >

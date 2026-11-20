@@ -99,7 +99,8 @@ export function RateRows({ rows, empty = 'Sin partidas.' }: { rows: RateRow[]; e
             </span>
           </div>
           {row.rate || row.hint ? (
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            // The hint and the record are one line of figures: both in the display face, not half and half.
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 font-heading text-xs text-muted-foreground">
               <span className="min-w-0">
                 {row.hint ? (
                   <span>

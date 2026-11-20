@@ -286,7 +286,7 @@ export function JugarPage() {
         <Label className="flex min-h-14 items-center justify-between gap-3 rounded-lg border px-3">
           <span>
             <span className="block font-medium">Modo entrenador</span>
-            <span className="block text-xs text-muted-foreground">
+            <span className="block font-sans text-xs text-muted-foreground">
               Después de cada jugada te dice qué habría hecho el motor y cuánto se pierde; podés pedir una pista.
             </span>
           </span>

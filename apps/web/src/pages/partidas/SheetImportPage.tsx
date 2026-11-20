@@ -403,7 +403,7 @@ export function SheetImportPage() {
             <label className="flex min-w-0 flex-col gap-1 text-sm">
               <span className="text-muted-foreground">Modalidad de todas las partidas</span>
               <select
-                className="h-11 rounded-lg border bg-background px-2 text-base"
+                className="h-11 rounded-lg border border-input bg-secondary px-2 text-base"
                 value={mode}
                 onChange={(event) => {
                   const next = event.target.value as MatchMode
@@ -448,7 +448,7 @@ export function SheetImportPage() {
                       </span>
                       <select
                         aria-label={`Mazo de ${code.code}`}
-                        className="h-11 min-w-0 rounded-lg border bg-background px-2 text-base"
+                        className="h-11 min-w-0 rounded-lg border border-input bg-secondary px-2 text-base"
                         value={code.deckId ?? ''}
                         onChange={(event) => choose(code.code, event.target.value)}
                       >
@@ -549,7 +549,7 @@ export function SheetImportPage() {
             </ul>
           ) : null}
           {applied.columnK ? <ColumnK columnK={applied.columnK} headerRow={data?.headerRow ?? null} /> : null}
-          <Link to="/partidas/historial" className="text-sm text-primary hover:underline">
+          <Link to="/partidas/historial" className="text-sm text-primary underline underline-offset-4">
             Ver el historial
           </Link>
         </Section>

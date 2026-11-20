@@ -13,7 +13,7 @@ import { isReplay } from '@/lib/replay'
 function Header({ data, replayId, steps }: { data: ReplayResponse; replayId: string; steps: number }) {
   return (
     <div className="flex flex-col gap-1">
-      <Link to={`/simulacion/${data.game.jobId}`} className="text-sm text-primary hover:underline">
+      <Link to={`/simulacion/${data.game.jobId}`} className="text-sm text-primary underline underline-offset-4">
         {data.game.jobLabel}
       </Link>
       <p className="text-sm">
@@ -32,7 +32,7 @@ function Header({ data, replayId, steps }: { data: ReplayResponse; replayId: str
             href={`/viewer/index.html?url=${encodeURIComponent(`/api/simulations/replays/${replayId}/raw`)}`}
             target="_blank"
             rel="noreferrer"
-            className="text-primary hover:underline"
+            className="text-primary underline underline-offset-4"
           >
             Ver en el visor gráfico de deckgym
           </a>{' '}

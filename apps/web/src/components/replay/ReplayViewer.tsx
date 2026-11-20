@@ -72,7 +72,13 @@ function OptionBars({ step, reader }: { step: ReplayStep; reader: ReplayReader }
             ) : null}
             <span className={cn('relative flex gap-2 px-2 py-1', i === step.chosen && 'font-semibold')}>
               <span className="min-w-0 flex-1">{text}</span>
-              {labels ? <span className="tabular-nums text-muted-foreground">{labels[i]}</span> : null}
+              {/* The chosen bar is a tint of the primary, a mid grey: its figure takes the text colour (muted, it
+                  fell to 3.61:1 in the light theme). */}
+              {labels ? (
+                <span className={cn('tabular-nums', i === step.chosen ? 'text-foreground' : 'text-muted-foreground')}>
+                  {labels[i]}
+                </span>
+              ) : null}
               {i === step.chosen ? (
                 <span>
                   <span aria-hidden="true">✓</span>

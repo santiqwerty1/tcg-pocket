@@ -82,7 +82,7 @@ export function EngineLine({ engine }: { engine: EngineInfo }) {
             href={engine.upstream.compareUrl}
             target="_blank"
             rel="noreferrer"
-            className="text-primary hover:underline"
+            className="text-primary underline underline-offset-4"
           >
             Ver cambios
           </a>
@@ -121,7 +121,10 @@ export function EngineLine({ engine }: { engine: EngineInfo }) {
                 </span>
               ) : null}
               {worker.current ? (
-                <Link to={`/simulacion/${worker.current.jobId}`} className="text-xs text-primary hover:underline">
+                <Link
+                  to={`/simulacion/${worker.current.jobId}`}
+                  className="text-xs text-primary underline underline-offset-4"
+                >
                   jugando #{worker.current.jobId}: {formatNumber(worker.current.gamesDone)}/
                   {formatNumber(worker.current.games)}
                 </Link>

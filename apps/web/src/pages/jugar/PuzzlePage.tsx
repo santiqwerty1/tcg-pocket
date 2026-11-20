@@ -135,7 +135,16 @@ function Solve({ puzzle, reader }: { puzzle: Puzzle; reader: ReplayReader }) {
                   />
                   <span className={cn('relative flex gap-2 px-2 py-1', i === result.answer && 'font-semibold')}>
                     <span className="min-w-0 flex-1">{text(i)}</span>
-                    <span className="tabular-nums text-muted-foreground">{score.toLocaleString('es-AR')}</span>
+                    {/* On the green and the red bar the figure takes the text colour: muted, it fell under 4.5:1 in
+                        the light theme. */}
+                    <span
+                      className={cn(
+                        'tabular-nums',
+                        i === result.best || i === result.answer ? 'text-foreground' : 'text-muted-foreground',
+                      )}
+                    >
+                      {score.toLocaleString('es-AR')}
+                    </span>
                   </span>
                 </li>
               )
@@ -188,7 +197,7 @@ function Solve({ puzzle, reader }: { puzzle: Puzzle; reader: ReplayReader }) {
         <div className="fixed inset-x-0 bottom-16 z-30 border-t bg-background/95 px-3 py-2 backdrop-blur pb-safe">
           {play.selected ? (
             <div className="mb-1.5 flex items-center gap-2 text-sm">
-              <span className="flex-1 text-primary">Tocá un lugar marcado</span>
+              <span className="flex-1 text-ring">Tocá un lugar marcado</span>
               <Button type="button" variant="ghost" size="sm" onClick={() => play.setSelected(null)}>
                 Cancelar
               </Button>

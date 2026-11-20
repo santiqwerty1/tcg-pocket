@@ -407,7 +407,7 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
         <div className="fixed inset-x-0 bottom-16 z-30 border-t bg-background/95 px-3 py-2 backdrop-blur pb-safe">
           {selected ? (
             <div className="mb-1.5 flex items-center gap-2 text-sm">
-              <span className="flex-1 text-primary">Tocá un lugar marcado</span>
+              <span className="flex-1 text-ring">Tocá un lugar marcado</span>
               <Button type="button" variant="ghost" size="sm" onClick={() => setSelected(null)}>
                 <XIcon aria-hidden="true" />
                 Cancelar

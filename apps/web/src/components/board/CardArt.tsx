@@ -34,7 +34,7 @@ export function CardArt({ engineId, className }: { engineId: string; className?:
   const energy = card.edition?.energy ?? card.engine?.energy_type
   return (
     <div
-      className={cn('flex size-full flex-col justify-between bg-card p-1 text-left', className)}
+      className={cn('flex size-full flex-col justify-between bg-card p-1 text-left font-sans', className)}
       style={{ borderTop: `4px solid ${tone(typeof energy === 'string' ? energy : undefined)}` }}
     >
       <span className="line-clamp-3 text-[11px] leading-tight font-medium">{card.name}</span>

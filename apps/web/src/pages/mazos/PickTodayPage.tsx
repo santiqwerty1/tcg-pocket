@@ -60,7 +60,7 @@ function Row({
       <Line label={mine ? 'Torneo, tus rivales' : 'Torneo hoy'} active={sort === 'tournament'}>
         {row.tournament ? (
           <>
-            <span className="font-semibold tabular">{formatRateValue(row.tournament.value)}</span>
+            <span className="font-semibold tabular-nums">{formatRateValue(row.tournament.value)}</span>
             {row.tournament.ci95 ? (
               <>
                 {' '}
@@ -78,7 +78,7 @@ function Row({
       <Line label="Mis partidas" active={sort === 'matches'}>
         {row.mine?.rate ? (
           <>
-            <span className="font-semibold tabular">{formatRateValue(row.mine.rate.value)}</span> · n ={' '}
+            <span className="font-semibold tabular-nums">{formatRateValue(row.mine.rate.value)}</span> · n ={' '}
             {formatNumber(row.mine.rate.games)}, IC&nbsp;{formatInterval(row.mine.rate.ci95)}
             {row.mine.rate.orientative ? ', orientativo' : ''}
           </>
@@ -89,11 +89,13 @@ function Row({
       <Line label="Laboratorio" active={sort === 'lab'}>
         {row.lab ? (
           <span className={cn(row.lab.stale && 'text-muted-foreground')}>
-            <span className={cn('tabular', !row.lab.stale && 'font-semibold')}>{formatRateValue(row.lab.value)}</span> ·
-            n = {formatNumber(row.lab.games)}, IC
+            <span className={cn('tabular-nums', !row.lab.stale && 'font-semibold')}>
+              {formatRateValue(row.lab.value)}
+            </span>{' '}
+            · n = {formatNumber(row.lab.games)}, IC
             {'\u00a0'}
             {formatInterval(row.lab.ci95)} ·{' '}
-            <Link to={`/laboratorio/${row.lab.jobId}`} className="text-primary hover:underline">
+            <Link to={`/laboratorio/${row.lab.jobId}`} className="text-primary underline underline-offset-4">
               #{row.lab.jobId}
             </Link>
             {` · ${row.lab.bot}`}
@@ -114,7 +116,7 @@ function Row({
           <span key={other.bot} className="text-muted-foreground">
             {' · con '}
             {other.bot}: {formatRateValue(other.value)} (
-            <Link to={`/laboratorio/${other.jobId}`} className="text-primary hover:underline">
+            <Link to={`/laboratorio/${other.jobId}`} className="text-primary underline underline-offset-4">
               #{other.jobId}
             </Link>
             )
@@ -157,7 +159,7 @@ function LabRunning({ run, first }: { run: NonNullable<Pick['items'][number]['la
   return (
     <span className="text-muted-foreground">
       {first ? null : ' · '}
-      <Link to={`/laboratorio/${run.jobId}`} className="text-primary hover:underline">
+      <Link to={`/laboratorio/${run.jobId}`} className="text-primary underline underline-offset-4">
         {run.status === 'queued' && run.gamesDone === 0 ? 'en cola' : `probando… ${share}${'\u00a0'}%`}
       </Link>
     </span>

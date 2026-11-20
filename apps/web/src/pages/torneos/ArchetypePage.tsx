@@ -230,7 +230,7 @@ export function ArchetypePage() {
         </Section>
       ) : null}
 
-      <Link to={`/torneos${query}`} className="text-sm text-primary hover:underline">
+      <Link to={`/torneos${query}`} className="text-sm text-primary underline underline-offset-4">
         Volver a la era {info.era.code}
       </Link>
     </div>
