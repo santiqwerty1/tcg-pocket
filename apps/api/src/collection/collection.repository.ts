@@ -59,13 +59,15 @@ export class CollectionRepository {
     const now = readFingerprint(await this.prisma.$queryRaw<{ fingerprint: string }[]>(STOCK_FINGERPRINT))
     const held = this.held
     if (held && held.fingerprint === now) return stockFromRows(held.rows)
-    // The rows and their fingerprint in the same snapshot, so the pair always matches.
+    // The rows and their fingerprint in the same snapshot, so the pair always matches. It waits for a free connection
+    // as long as a plain query does (H-015, `connectionTimeoutMillis` in `prisma/pool-options.ts`), not Prisma's 2 s
+    // for a transaction: right after a stock write, a busy pool must not turn every view of the collection into a 500.
     const [rows, fingerprint] = await this.prisma.$transaction(
       [
         this.prisma.collectionStock.findMany({ select: { cardId: true, amountOwned: true, collected: true } }),
         this.prisma.$queryRaw<{ fingerprint: string }[]>(STOCK_FINGERPRINT),
       ],
-      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 15_000, timeout: 15_000 },
     )
     this.held = { fingerprint: readFingerprint(fingerprint), rows }
     return stockFromRows(rows)

@@ -6,7 +6,8 @@
  *
  * Every read of one import's rows went to the database (~2,760 rows each, ~40 a day by 19/11/2026, plus «suerte de los
  * sobres», up to 8 imports each time). The import itself (status, diff) is still read every time; only its rows are
- * kept. About 150 KB per import (R-008).
+ * kept. Measured (R-008): ~260 KB for an import of 2,760 rows and ~430 KB for one of 4,547 (the CSV of 11/11/2026), so
+ * the 12 held take 3–5 MB.
  */
 import { Injectable } from '@nestjs/common'
 import type { CollectionImportRow } from '../generated/prisma/client.js'

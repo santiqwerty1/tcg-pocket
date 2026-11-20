@@ -393,13 +393,19 @@ export class TournamentsService {
         country: row.country,
         placing: row.placing,
         drop: row.drop,
-        record: { wins: row.wins, losses: row.losses, ties: row.ties },
+        // Kept between data versions and passed by reference into every rebuilt dataset: frozen, so a future in-place
+        // mutation fails loudly instead of corrupting the next version (review of #191).
+        record: Object.freeze({ wins: row.wins, losses: row.losses, ties: row.ties }),
         archetype:
           row.archetypeId === null
             ? null
-            : { id: row.archetypeId, name: row.archetypeName ?? row.archetypeId, icons: row.archetypeIcons },
+            : Object.freeze({
+                id: row.archetypeId,
+                name: row.archetypeName ?? row.archetypeId,
+                icons: Object.freeze(row.archetypeIcons) as string[],
+              }),
         decklist: this.sharedLines(row.decklist as LimitlessDecklist | null),
-        energies: row.energies,
+        energies: Object.freeze(row.energies) as string[],
       }
       const list = byTournament.get(tournamentId)
       if (list) list.push(entry)

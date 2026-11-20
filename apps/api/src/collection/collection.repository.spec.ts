@@ -38,7 +38,7 @@ describe('CollectionRepository.loadStock (R-014)', () => {
     const second = await repository.loadStock()
     expect(second).toEqual({ 'A1-001': { stockCardId: 'A1-001', amountOwned: 2, collected: true } })
     expect(state.reads).toBe(1)
-    expect(state.transactions).toEqual([{ isolationLevel: 'RepeatableRead' }])
+    expect(state.transactions).toEqual([{ isolationLevel: 'RepeatableRead', maxWait: 15_000, timeout: 15_000 }])
     // Every call gets its own objects, as before: a caller that changes one does not change the next.
     expect(second).not.toBe(first)
     ;(first['A1-001'] as { amountOwned: number }).amountOwned = 99
