@@ -14,7 +14,7 @@ import { MatrixGrid } from './SimulationDetailPage'
 
 const decimal = (v: number) => v.toLocaleString('es-AR', { maximumFractionDigits: 2 })
 const points = (v: number) => v.toLocaleString('es-AR', { maximumFractionDigits: 1, signDisplay: 'exceptZero' })
-const selectClass = 'min-h-11 w-full min-w-0 rounded-lg border bg-background px-2 text-sm'
+const selectClass = 'min-h-11 w-full min-w-0 rounded-lg border border-input bg-secondary px-2 text-sm'
 
 function Calibration({ id }: { id: number }) {
   const query = useCalibration(String(id))

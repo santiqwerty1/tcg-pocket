@@ -45,6 +45,14 @@ it('offers the source of the browser engine it serves (AGPL-3.0, review of #86)'
   expect(screen.queryByText(/no se\s+distribuye/)).toBeNull()
 })
 
+it('names the fonts and links their licence, the file the build serves (OFL-1.1)', async () => {
+  renderAbout(null)
+  expect(await screen.findByText(/Barlow Semi Condensed e Inter \(SIL Open Font License 1\.1\)/)).toBeTruthy()
+  expect(screen.getByRole('link', { name: '/licenses/fonts-ofl.txt' }).getAttribute('href')).toBe(
+    '/licenses/fonts-ofl.txt',
+  )
+})
+
 it('points at the repository when this installation has no engine for the browser', async () => {
   renderAbout(null)
   expect((await screen.findByRole('link', { name: 'repositorio' })).getAttribute('href')).toBe(

@@ -439,7 +439,7 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
       {deck.games ? <GamesLine games={deck.games} /> : null}
       <button
         type="button"
-        className="flex items-center gap-1 self-start text-xs text-primary hover:underline"
+        className="flex items-center gap-1 self-start text-xs text-primary underline underline-offset-4"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
       >
@@ -868,7 +868,7 @@ export function LabJobPage() {
             </li>
           ))}
         </ul>
-        <Link to={`/simulacion/${job.id}`} className="text-xs text-primary hover:underline">
+        <Link to={`/simulacion/${job.id}`} className="text-xs text-primary underline underline-offset-4">
           Ver la simulación completa (cruces, semillas, chunks)
         </Link>
       </Section>

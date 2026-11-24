@@ -116,7 +116,7 @@ export function DrillsPage() {
                   className={cn(
                     'h-14 text-base',
                     right && 'border-success bg-success/10 text-success',
-                    wrong && 'border-destructive bg-destructive/10 text-destructive',
+                    wrong && 'border-destructive bg-destructive/8 text-destructive',
                   )}
                   aria-pressed={result?.choice === i}
                   disabled={answer.isPending || (result !== null && !right && !wrong)}

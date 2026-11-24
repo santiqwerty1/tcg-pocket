@@ -50,7 +50,7 @@ export function ChatMovedSection() {
       {moved.isPending ? <LoadingRows rows={2} /> : null}
       {moved.isError ? <ErrorState error={moved.error} onRetry={() => moved.refetch()} /> : null}
       {moved.data && !moved.data.forwarding ? (
-        <p className="text-sm text-amber-700 dark:text-amber-400">
+        <p className="text-sm text-warning">
           Falta HUB_MCP_TOKEN: con una sala mudada, el conector viejo solo dice adónde se mudó, sin reenviar.
         </p>
       ) : null}

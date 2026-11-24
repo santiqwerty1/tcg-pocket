@@ -37,7 +37,7 @@ export function GameReplayPage() {
       initialStep={Number.isInteger(step) && step >= 0 ? step : undefined}
       header={
         <div className="flex flex-col gap-1">
-          <Link to={`/jugar/${data.id}`} className="text-sm text-primary hover:underline">
+          <Link to={`/jugar/${data.id}`} className="text-sm text-primary underline underline-offset-4">
             Partida #{data.id}
           </Link>
           <p className="text-sm">

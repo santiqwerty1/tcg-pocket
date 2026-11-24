@@ -69,7 +69,7 @@ function Row({ row }: { row: NextBuild['rows'][number] }) {
       </p>
       <Link
         to={`/torneos/listas/${encodeURIComponent(closest.key)}`}
-        className="self-start text-xs text-primary hover:underline"
+        className="self-start text-xs text-primary underline underline-offset-4"
       >
         Ver la lista
       </Link>

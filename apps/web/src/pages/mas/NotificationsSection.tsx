@@ -116,7 +116,7 @@ export function NotificationsSection() {
               <Label key={kind} className="flex min-h-14 items-center justify-between gap-3 rounded-lg border px-3">
                 <span>
                   <span className="block font-medium">{label}</span>
-                  <span className="block text-xs text-muted-foreground">{hint}</span>
+                  <span className="block font-sans text-xs text-muted-foreground">{hint}</span>
                 </span>
                 <Switch
                   checked={status.data.preferences[kind]}

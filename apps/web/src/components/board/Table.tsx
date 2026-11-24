@@ -135,7 +135,8 @@ export function PokemonTile({
         aria-label={`${place} vacío${target ? ': elegir' : ''}`}
         className={cn(
           'relative flex aspect-[5/6] w-full items-center justify-center rounded-md border border-dashed text-[10px] text-muted-foreground',
-          target && 'board-target border-primary bg-primary/10 text-primary',
+          // The highlight is the ring colour (the primary has no hue); the word stays readable on the tint.
+          target && 'board-target border-ring bg-ring/10 text-foreground',
         )}
       >
         {target ? 'acá' : size === 'lg' ? 'activo' : ''}
@@ -152,7 +153,7 @@ export function PokemonTile({
       className={cn(
         'relative aspect-[5/6] w-full touch-manipulation overflow-hidden rounded-md border bg-muted text-left shadow-sm select-none',
         fresh && 'board-fresh',
-        target && 'board-target ring-2 ring-primary',
+        target && 'board-target ring-2 ring-ring',
         selected && 'ring-2 ring-amber-400',
       )}
     >
@@ -292,7 +293,7 @@ function Side({ props, player, top }: { props: TableProps; player: Seat; top: bo
         onClick={() => props.onEnergy?.(player)}
         className={cn(
           'inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5',
-          energyPlayable && 'board-target border-primary bg-primary/10',
+          energyPlayable && 'board-target border-ring bg-ring/10',
           selected?.kind === 'energy' && 'ring-2 ring-amber-400',
         )}
         aria-label={`Zona de energía: ${zone.current ? energyEs(zone.current) : 'nada'}, luego ${zone.next ? energyEs(zone.next) : 'nada'}`}
@@ -302,8 +303,8 @@ function Side({ props, player, top }: { props: TableProps; player: Seat; top: bo
       </button>
     ) : null
   const info = (
-    <div className="flex items-center gap-2 text-xs">
-      <span className={cn('min-w-0 flex-1 truncate font-medium', turn && 'text-primary')}>
+    <div className="flex items-center gap-2 font-heading text-xs">
+      <span className={cn('min-w-0 flex-1 truncate font-medium', turn && 'text-ring')}>
         {turn ? '▸ ' : ''}
         {props.labels[player]}
       </span>
@@ -318,7 +319,7 @@ function Side({ props, player, top }: { props: TableProps; player: Seat; top: bo
         type="button"
         onClick={() => props.onDiscard?.(player)}
         disabled={!props.onDiscard}
-        className="text-muted-foreground underline-offset-2 tabular-nums hover:underline"
+        className="font-heading text-muted-foreground underline-offset-2 tabular-nums hover:underline"
       >
         desc. {data.discard.length + data.discard_energies.length}
       </button>
@@ -348,7 +349,7 @@ function Side({ props, player, top }: { props: TableProps; player: Seat; top: bo
     </div>
   ) : null
   return (
-    <div className={cn('flex flex-col gap-1.5 rounded-lg border p-1.5', turn && 'border-primary/50')}>
+    <div className={cn('flex flex-col gap-1.5 rounded-lg border p-1.5', turn && 'border-ring/50')}>
       {top ? (
         <>
           {info}
@@ -370,7 +371,7 @@ export function Table(props: TableProps) {
   const top: Seat = props.bottom === 0 ? 1 : 0
   const stadium = props.state.stadium
   return (
-    <div className="relative flex flex-col gap-1.5">
+    <div className="board-table relative flex flex-col gap-1.5">
       <Side props={props} player={top} top />
       <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
         {stadium ? (

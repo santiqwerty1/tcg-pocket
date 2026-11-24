@@ -79,6 +79,14 @@ export function AboutPage() {
             La interfaz usa componentes generados con shadcn/ui (MIT), Radix UI, TanStack Query, React Router y Tailwind
             CSS.
           </p>
+          <p>
+            Las tipografías son Barlow Semi Condensed e Inter (SIL Open Font License 1.1), sin modificar. La app las
+            sirve ella misma; el texto de la licencia está en{' '}
+            <a className="underline" href="/licenses/fonts-ofl.txt" target="_blank" rel="noreferrer">
+              /licenses/fonts-ofl.txt
+            </a>
+            .
+          </p>
           <p className="text-muted-foreground">
             El detalle de licencias y pins está en <code>docs/LICENCIAS.md</code> del repositorio.
           </p>

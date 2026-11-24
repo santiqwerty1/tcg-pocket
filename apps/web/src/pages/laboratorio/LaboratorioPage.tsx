@@ -651,21 +651,21 @@ function ExploreForm({ size, objective }: { size: number; objective: LabObjectiv
           disabled={fill}
           onCheckedChange={(checked) => setProbe(checked === true)}
         />
-        <label htmlFor="explore-probe">
+        <label htmlFor="explore-probe" className="font-sans">
           Empezar con una ronda de prueba: saca una copia de cada carta para ver cuánto aporta, y después cambia más
           seguido las que menos aportan.
         </label>
       </div>
       <div className="flex items-start gap-2 text-sm">
         <Checkbox id="explore-fill" checked={fill} onCheckedChange={(checked) => setFill(checked === true)} />
-        <label htmlFor="explore-fill">
+        <label htmlFor="explore-fill" className="font-sans">
           Después, llenar a fondo los dos lugares más flojos: prueba todas las combinaciones de las 5 cartas que más
           juega el meta en ese tipo de mazo, y verifica las 3 mejores. Prende la ronda de prueba.
         </label>
       </div>
       <div className="flex items-start gap-2 text-sm">
         <Checkbox id="explore-race" checked={race} onCheckedChange={(checked) => setRace(checked === true)} />
-        <label htmlFor="explore-race">
+        <label htmlFor="explore-race" className="font-sans">
           Carreras (en prueba): a mitad de cada ronda, las variantes claramente peores dejan de jugar y las partidas van
           a las demás.
         </label>

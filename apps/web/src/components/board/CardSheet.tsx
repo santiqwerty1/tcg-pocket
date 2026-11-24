@@ -172,7 +172,10 @@ export function CardSheet({
               </div>
             ) : null}
             {card.cardId ? (
-              <Link to={`/cartas/${encodeURIComponent(card.cardId)}`} className="text-sm text-primary hover:underline">
+              <Link
+                to={`/cartas/${encodeURIComponent(card.cardId)}`}
+                className="text-sm text-primary underline underline-offset-4"
+              >
                 Ver la carta en el catálogo
               </Link>
             ) : null}

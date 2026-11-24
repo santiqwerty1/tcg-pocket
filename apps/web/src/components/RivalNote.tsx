@@ -45,12 +45,12 @@ export function RivalNoteHint({
       <p className={cn('whitespace-pre-wrap', !open && 'line-clamp-3')}>{note.text}</p>
       <span className="flex gap-3 text-xs">
         {note.text.length > 160 ? (
-          <button type="button" className="text-primary hover:underline" onClick={() => setOpen(!open)}>
+          <button type="button" className="text-primary underline underline-offset-4" onClick={() => setOpen(!open)}>
             {open ? 'Ver menos' : 'Ver todo'}
           </button>
         ) : null}
         {/* Fase 41: edited right here, so the half-filled match stays as it was. */}
-        <button type="button" className="text-primary hover:underline" onClick={() => setEditing(true)}>
+        <button type="button" className="text-primary underline underline-offset-4" onClick={() => setEditing(true)}>
           Editar nota
         </button>
       </span>

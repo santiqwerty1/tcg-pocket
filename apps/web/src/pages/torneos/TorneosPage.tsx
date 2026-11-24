@@ -230,7 +230,10 @@ function UnlockTab({ scope }: { scope: TournamentScopeParams }) {
                 .map((row, at) => (
                   <span key={row.key}>
                     {at > 0 ? ' · ' : ''}
-                    <Link to={`/torneos/listas/${row.key}${search}`} className="text-primary hover:underline">
+                    <Link
+                      to={`/torneos/listas/${row.key}${search}`}
+                      className="text-primary underline underline-offset-4"
+                    >
                       {row.archetype.name}
                     </Link>
                   </span>
