@@ -5,10 +5,12 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-11-20 desde la etiqueta `v1.0.0` (438 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-11-24 desde la etiqueta `v1.0.0` (441 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- phase 0b of mock-up D — the frame: column, header, tab bar, fixed row and the Menú (#193) `573836a`
+- phase 0a of mock-up D — tokens, theme, typography and fonts (#190) `787e481`
 - Misty and Sweet Honey's new choices in Spanish (D-031) `11d7cc1`
 - the app on ca13408 — DEFAULT_ENGINE_REV, About, LICENCIAS, OPERACION and the decisions (D-031) `0ca1c6f`
 - the engine moves to next/97b8787 at ca13408 — upstream's rule fixes of 2/11 (D-031) (#442, #440, #441) `59638e2`
@@ -294,6 +296,7 @@ _Borrador generado al 2026-11-20 desde la etiqueta `v1.0.0` (438 commits). Escri
 
 ### Documentado
 
+- 19–20/11 — #191 deployed, mock-up D chosen; number 69.8–69.17 and 70.6–70.12 (R-014) `bf04a5e`
 - mock-up D «Fusión» for the UI renewal (#189) (#182) `5510d1a`
 - 15/11 — Supabase egress on 14 and 15/11 and what a day is made of (R-014) `ff116cc`
 - 13/11 — C1 results, #186 and the idle egress; number 69.6–69.7 (R-014, T-023) `3b06213`
@@ -465,9 +468,4 @@ _Borrador generado al 2026-11-20 desde la etiqueta `v1.0.0` (438 commits). Escri
 ### Otros
 
 - docs+test: decisions of the self-review, labSimulable in API.md, the Bot select in the screens (D-029) `43b7f6e`
-
-### Hallazgos cerrados
-
-- H-057 por `d7a6c1c` en main
-- H-050 por `55850d4` en main
 <!-- /posta:cambios -->

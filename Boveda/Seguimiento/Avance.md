@@ -4,7 +4,7 @@ titulo: >-
   Avance
 area: proyecto
 estado: vigente
-actualizado: '2026-11-12'
+actualizado: '2026-11-24'
 origen:
   - posta init
   - docs/PLAN.md §7
@@ -89,7 +89,7 @@ revisar: false
 
 ## Próximos pasos
 
-**Producción al 20/11/2026:** desplegada hasta `1c38a85` (#191, el dataset de torneos y la colección en memoria; #186, el pool de conexiones), con con #181 (el motor nuevo), #176 (la temporada de ranked C1 del 1/12 al 15/12), el tráfico a Supabase (#179, #180, #183, #186 y #191, [R-014](Riesgos/R-014.md)), los sobres de promoción (#164, #165 y #169), pokemon-zone (#170–#172, backup `schemaVersion` 13) y el cupón ★★ (#173 y #174); #177, #182 y #189 son solo `docs/`. Versión 1.0.0, engine-cli 0.3.18 y worker 0.3.16, con el regulador de CPU prendido. El motor es la copia de deckgym en `ca13408`, sobre upstream `97b8787` ([D-031](Decisiones/D-031.md)), y el catálogo, el tracker en `8f3d1d7` con ese motor. El hub de chat anda en `chat-hub-sq1` y ya lleva la sala «posta» ([D-030](Decisiones/D-030.md)). La app está en la era C1, y el evento limitado de Fusión Dual (id 2) ya está cargado. Los workers se actualizan solos ([D-026](Decisiones/D-026.md)); la PC ya está en 0.3.15. El id de la máquina se busca con `flyctl machine list --app tcg-pocket`. MCP: 49 tools de lectura y 14 de escritura.
+**Producción al 20/11/2026:** desplegada hasta `1c38a85` (#191, el dataset de torneos y la colección en memoria; #186, el pool de conexiones), con con #181 (el motor nuevo), #176 (la temporada de ranked C1 del 1/12 al 15/12), el tráfico a Supabase (#179, #180, #183, #186 y #191, [R-014](Riesgos/R-014.md)), los sobres de promoción (#164, #165 y #169), pokemon-zone (#170–#172, backup `schemaVersion` 13) y el cupón ★★ (#173 y #174); #177, #182 y #189 son solo `docs/`. Versión 1.0.0, engine-cli 0.3.18 y worker 0.3.16, con el regulador de CPU prendido. El motor es la copia de deckgym en `ca13408`, sobre upstream `97b8787` ([D-031](Decisiones/D-031.md)), y el catálogo, el tracker en `8f3d1d7` con ese motor. El hub de chat anda en `chat-hub-sq1` y ya lleva la sala «posta» ([D-030](Decisiones/D-030.md)). La app está en la era C1, y el evento limitado de Fusión Dual (id 2) ya está cargado. Los workers se actualizan solos ([D-026](Decisiones/D-026.md)); la PC ya está en 0.3.15. El id de la máquina se busca con `flyctl machine list --app tcg-pocket`. MCP: 49 tools de lectura y 14 de escritura. En main sin desplegar: #190 y #193, las fases 0a y 0b de la maqueta D (Santiago decide cuándo se despliegan).
 
 **Repo:** `santiqwerty1/tcg-pocket` es público desde el 11/10 ([D-022](Decisiones/D-022.md)). main está protegida (privacy, test, e2e y screens requeridos) y, desde el 18/10, con `enforce_admins`: tampoco la cuenta de Santiago empuja directo. El hub de chat vive en `santiqwerty1/chat-hub` (privado, [D-030](Decisiones/D-030.md)), con la CI en un runner propio de la PC de Santiago.
 
@@ -101,9 +101,9 @@ revisar: false
 
 Lo que sigue, en orden:
 
-1. **El tráfico a Supabase** ([R-014](Riesgos/R-014.md)): #191 desplegado el 20/11 (estimado ~43–46 MB por día menos). Medir el 21/11 entero en el panel (presupuesto ~114 MB por día hasta el 7/12, 2,92 de 5 GB usados el 19/11). [P-015](Preguntas/P-015.md), para Santiago: qué hacer con el detalle de una búsqueda del Laboratorio (7,2 MB cada 5 s).
+1. **El tráfico a Supabase** ([R-014](Riesgos/R-014.md)): #191 funcionó. Un día tranquilo bajó de ~65–80 MB a ~27–31 MB, y una búsqueda del Laboratorio suma ~75 MB ese día. Usados 3,20 de 5 GB el 24/11: quedan ~147 MB por día hasta el 7/12, y el ciclo cerraría en ~3,6–3,7 GB. Mirar el panel al cierre del ciclo, el 7/12. [P-015](Preguntas/P-015.md), para Santiago: qué hacer con el detalle de una búsqueda del Laboratorio (7,2 MB cada 5 s).
 2. **Los resultados de C1** ([T-023](Tareas/T-023.md)), hecho el 13/11: «Actualizar todos» (107–109), la matriz (111) y la calibración g2 (110: 96 de 124 pares compatibles, ρ 0,47). Puntos ciegos del bot: #84 Giratina ex / Dragonair y #14 Vespiquen ex / Shuckle ex. Detalle en la bitácora del 13/11.
-3. **Renovación de la interfaz** (sesión en la nube «Nube-Interfaz»): Santiago eligió la maqueta D «Fusión» (#189, 19/11). La implementación va por fases (`docs/prototipos/renovacion-ui/DIRECCION-D.md`, punto 14): #190 (0a: tokens, tema, tipografía y fuentes) está en revisión, con un arreglo pedido; después, la 0b (el marco) y un PR chico con los textos «Más → …» de la API y el dominio.
+3. **Renovación de la interfaz** (sesión en la nube «Nube-Interfaz»): Santiago eligió la maqueta D «Fusión» (#189, 19/11). La implementación va por fases (`docs/prototipos/renovacion-ui/DIRECCION-D.md`, punto 14). La fase 0 está en main: #190 (0a: tokens, tema, tipografía y fuentes) y #193 (0b: el marco, con las cinco pestañas y el Menú), DECISIONES 71.1–71.52. Falta desplegarlas, cuando lo pida Santiago. Siguen un PR chico con los textos «Más → …» de la API y el dominio (con las notas menores de la revisión de #193), otro con los colores de la página de login, y la fase 1 con el visto bueno de Santiago. `CLAUDE.md` y la bóveda dicen «Más → …» en varios lugares: pasarlos a «Menú → …» o a la pestaña después del deploy.
 4. **El 18/11** ([T-023](Tareas/T-023.md)): cargar las excepciones del evento limitado de Fusión Dual, y sumar promo C vol. 1 a `PROMO_VOLUMES` y a los eventos cuando se conozcan sus cartas.
 5. **pokemon-zone, fase 2** ([T-025](Tareas/T-025.md)): la colección con fechas, los mazos del juego, las colecciones temáticas, la wishlist y el calendario de eventos. Las cartas se cruzan por el `cardId` de pokemon-zone.
 6. **Menores de #174:** un test que fije «más nueva» como el orden del catálogo, el plural de «esos cupones vencieron» y «termina antes» para un sobre limitado sin fecha de fin.
@@ -215,3 +215,6 @@ El 19/11/2026:
 
 El 20/11/2026:
 - #191 ([R-014](Riesgos/R-014.md)) integrado y desplegado en `1c38a85`.
+
+El 24/11/2026:
+- #190 (fase 0a, integrado por Nube-Interfaz a pedido de Santiago) y #193 (fase 0b, con revisión independiente sin nada que arreglar) en main, sin desplegar. El tráfico a Supabase después de #191 ([R-014](Riesgos/R-014.md)), contado a Santiago.
