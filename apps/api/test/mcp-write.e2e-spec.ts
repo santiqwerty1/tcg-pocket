@@ -215,7 +215,7 @@ describe('MCP write tools (e2e)', () => {
       ((await get(`/api/matches/${match.id}`)).body.opponentCards as { count: number }[]).map((card) => card.count),
     ).toEqual([2, 1])
     expect((await call(client, 'matches_restore', { id: match.id })).isError).toBe(true)
-    // Deleted again, and undone from the app this time (Más → Tokens de API).
+    // Deleted again, and undone from the app this time (Menú → Tokens de API).
     expect((await call(client, 'matches_delete', { id: match.id })).isError).toBeFalsy()
     const audit = (await get('/api/mcp-audit')).body.items as {
       id: string

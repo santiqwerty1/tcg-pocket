@@ -69,9 +69,27 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
+
+/**
+ * For a test that says «nobody asked the API»: a clock that only the test moves, so a request made after a wait or by
+ * an interval is seen without sleeping. Only what waits or repeats is faked; React's own scheduling stays real.
+ */
+const ownClock = () =>
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
+
+/**
+ * Moves that clock forward and lets what it wakes up settle: effects, the answers of the fake API and the renders
+ * they cause. Testing Library's own waits (`findBy…`, `waitFor`) stand still under it: after this the screen is read
+ * with `getBy…`.
+ */
+const pass = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms))
+
+const MINUTE = 60_000
+const requests = (calls: { method: string; path: string }[]) => calls.map((call) => `${call.method} ${call.path}`)
 
 describe('the header', () => {
   it('a root has one h1, in the header, with D’s root look, and names the browser tab', async () => {
@@ -264,8 +282,10 @@ describe('the frame around the page', () => {
   })
 
   it('going from a root to an inner page and back does not start the sender of waiting matches again', async () => {
+    ownClock()
     const { calls } = fakeApi({})
     const sends = () => calls.filter((call) => call.method === 'POST' && call.path === '/api/matches').length
+    const heading = () => screen.getByRole('heading', { level: 1 })
     queueMatch({
       clientRef: 'a1b2c3d4-0000-4000-8000-000000000001',
       body: { deckId: '7', result: 'win', opponent: null, wentFirst: null, mode: 'casual' },
@@ -273,17 +293,24 @@ describe('the frame around the page', () => {
       savedAt: Date.now(),
     })
     const router = renderAt('/partidas')
-    await waitFor(() => expect(sends()).toBe(1))
+    await pass(1_000)
+    expect(sends()).toBe(1)
 
     await go(router, '/partidas/historial')
-    expect(await title('Historial de partidas')).toBeInTheDocument()
+    await pass(1_000)
+    expect(heading()).toHaveTextContent('Historial de partidas')
     await go(router, '/partidas')
-    expect(await title('Hoy')).toBeInTheDocument()
+    await pass(1_000)
+    expect(heading()).toHaveTextContent('Hoy')
     await go(router, '/mas')
-    expect(await title('Menú')).toBeInTheDocument()
-    // The API answered 503: the match still waits, and nobody tried again.
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    await pass(1_000)
+    expect(heading()).toHaveTextContent('Menú')
+    // The API answered 503: the match still waits. A sender mounted again would have tried at once; this one waits
+    // for its own minute, counted from the first screen.
+    await pass(55_000)
     expect(sends()).toBe(1)
+    await pass(2_000)
+    expect(sends()).toBe(2)
   })
 
   it('names the landmark of the toasts in Spanish, as its other landmarks', async () => {
@@ -301,21 +328,31 @@ describe('the frame around the page', () => {
         children: [{ path: 'mas/quieta', element: <p>Nada que pedir</p>, handle: { title: 'Quieta', back: '/mas' } }],
       },
     ]
+    ownClock()
     const { calls } = fakeApi({})
     renderAt('/mas/quieta', table)
-    await screen.findByRole('navigation', { name: 'Secciones' })
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([])
+    await pass(0)
+    expect(screen.getByRole('navigation', { name: 'Secciones' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Buscar' })).toBeInTheDocument()
+    // Two hours: four times the half hour of the alerts, and far beyond any wait before asking.
+    await pass(120 * MINUTE)
+    expect(requests(calls)).toEqual([])
   })
 
   it('asks the API for nothing but the alerts', async () => {
+    ownClock()
     const { calls } = fakeApi({})
     const router = renderAt('/quieta', QUIET)
-    await waitFor(() => expect(calls).toHaveLength(1))
+    await pass(0)
+    expect(requests(calls)).toEqual(['GET /api/alerts'])
     await go(router, '/nombrada')
-    expect(await title('Gardevoir ex')).toBeInTheDocument()
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual(['GET /api/alerts'])
+    await pass(0)
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Gardevoir ex')
+    // Up to the alerts' own half hour nobody asks for anything; then they are asked again, and nothing else is.
+    await pass(29 * MINUTE)
+    expect(requests(calls)).toEqual(['GET /api/alerts'])
+    await pass(2 * MINUTE)
+    expect(requests(calls)).toEqual(['GET /api/alerts', 'GET /api/alerts'])
   })
 })
 

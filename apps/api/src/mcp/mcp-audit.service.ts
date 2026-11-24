@@ -1,7 +1,7 @@
 /**
  * Fase 43 (R-010): the record of every write Claude makes through the MCP, and the way back for the writes that
  * lose something — a deleted match (the row is kept here), a collection edit (the row before the edit) and a rival
- * note replaced or deleted (the text before). The owner sees it in Más → Tokens de API; `matches_restore` uses it
+ * note replaced or deleted (the text before). The owner sees it in Menú → Tokens de API; `matches_restore` uses it
  * too.
  */
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
@@ -222,7 +222,7 @@ export class McpAuditService {
     return rows.map((row) => this.view(row))
   }
 
-  /** Undoes a recorded write from the app (Más → Tokens de API). */
+  /** Undoes a recorded write from the app (Menú → Tokens de API). */
   async undo(rawId: string): Promise<McpAuditView> {
     const row = await this.prisma.mcpAudit.findUnique({ where: { id: parseNumericId(rawId, 'Registro') } })
     if (!row) throw new NotFoundException(`Registro ${rawId} no encontrado.`)

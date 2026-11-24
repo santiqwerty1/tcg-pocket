@@ -12,7 +12,7 @@ const listQuerySchema = z.object({
     .optional(),
 })
 
-/** Fase 43 (R-010): what Claude wrote through the MCP (Más → Tokens de API), and «Deshacer». Session only. */
+/** Fase 43 (R-010): what Claude wrote through the MCP (Menú → Tokens de API), and «Deshacer». Session only. */
 @Controller('api/mcp-audit')
 export class McpAuditController {
   constructor(private readonly audit: McpAuditService) {}

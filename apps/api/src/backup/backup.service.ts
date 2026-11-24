@@ -1035,7 +1035,7 @@ export class BackupService {
       document.collection.imports.some((item) => item.source === 'dotgg')
     ) {
       notices.push(
-        'El link de ptcgpocket.gg no viaja en el backup: se mantiene el que está configurado; si no hay, pegalo de nuevo en Más → Ajustes de la app.',
+        'El link de ptcgpocket.gg no viaja en el backup: se mantiene el que está configurado; si no hay, pegalo de nuevo en Menú → Ajustes de la app.',
       )
     }
     return { notices, needsReview, unknownCardIds: [...unknown] }

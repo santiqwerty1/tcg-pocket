@@ -44,7 +44,7 @@ export const CHAT_ROOM_LABEL: Record<ChatRoom, string> = {
   posta: 'Posta',
 }
 
-/** The list the migration starts with; Santi edits it in Más → Tokens de API. */
+/** The list the migration starts with; Santi edits it in Menú → Tokens de API. */
 export const CHAT_DEFAULT_PARTICIPANTS: readonly { name: string; channel: ChatChannel }[] = [
   { name: CHAT_OWNER, channel: 'owner' },
   { name: 'Coordinador', channel: 'relay' },

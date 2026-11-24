@@ -3,7 +3,7 @@
  * Without `--commit`, the commit loaded now (Fase 40; the configured CATALOG_COMMIT only before the first sync);
  * the engine, ENGINE_REV (or this build's DEFAULT_ENGINE_REV, never the last sync's). It says which, on stderr, before
  * syncing. A sync that takes cards away (or leaves things to review) stops before writing unless
- * `--confirm` (look first with Más → Catálogo or `POST /api/catalog/preview`). `--from-fixtures` reads
+ * `--confirm` (look first with Menú → Catálogo or `POST /api/catalog/preview`). `--from-fixtures` reads
  * packages/domain/test/fixtures instead of raw.githubusercontent.com (offline, tests).
  */
 import { parseArgs } from 'node:util'

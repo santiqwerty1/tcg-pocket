@@ -1138,7 +1138,7 @@ export class MatchesService {
         available: false,
         record: null,
         rate: null,
-        note: 'Todavía no se simuló la lista actual de este mazo (Más → Simulación).',
+        note: 'Todavía no se simuló la lista actual de este mazo (Pruebas → Simulación).',
       }
     }
     return {

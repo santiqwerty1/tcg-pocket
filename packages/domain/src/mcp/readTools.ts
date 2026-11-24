@@ -581,7 +581,7 @@ export const MCP_READ_TOOLS = {
     name: 'play_games',
     title: 'Partidas contra el bot',
     description:
-      'Las partidas de Santi contra un bot del motor deckgym (Más → Jugar contra un bot), las más nuevas primero: número, estado, su mazo, el rival, el bot, si tenía entrenador, el resultado, los turnos y, con entrenador, qué parte de sus jugadas fueron tan buenas como las del entrenador. Para analizar una, play_game_review con su número. Son partidas de práctica contra un bot: nunca se mezclan con las partidas registradas.',
+      'Las partidas de Santi contra un bot del motor deckgym (Pruebas → Practicar), las más nuevas primero: número, estado, su mazo, el rival, el bot, si tenía entrenador, el resultado, los turnos y, con entrenador, qué parte de sus jugadas fueron tan buenas como las del entrenador. Para analizar una, play_game_review con su número. Son partidas de práctica contra un bot: nunca se mezclan con las partidas registradas.',
     input: z.object({
       limit: z.number().int().min(1).max(30).optional().describe('Partidas a devolver (por defecto 15)'),
     }),
@@ -673,7 +673,7 @@ export const MCP_READ_TOOLS = {
     name: 'alerts_list',
     title: 'Avisos de la app',
     description:
-      'Los avisos que la app muestra en Más: set nuevo en el tracker, cartas de torneo que el catálogo no conoce, era nueva probable, sobre limitado por terminar, prueba del backup, worker caído con trabajo esperando, motor con commits nuevos, un cliente nuevo usando un token de Claude, entre otros. Cada uno con nivel, detalle y dónde se resuelve.',
+      'Los avisos que la app muestra en el Menú: set nuevo en el tracker, cartas de torneo que el catálogo no conoce, era nueva probable, sobre limitado por terminar, prueba del backup, worker caído con trabajo esperando, motor con commits nuevos, un cliente nuevo usando un token de Claude, entre otros. Cada uno con nivel, detalle y dónde se resuelve.',
     input: z.object({}),
   },
   decksConsistency: {

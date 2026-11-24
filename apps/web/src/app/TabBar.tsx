@@ -4,15 +4,16 @@
  * and from there to the top of the page.
  */
 import type { MouseEvent } from 'react'
-import { Link, useLocation } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { GlobalSearch } from '@/components/GlobalSearch'
 import { scrollBehavior } from '@/lib/look'
 import { cn } from '@/lib/utils'
 import { frameFor, isPlainClick, normalizePath, TABS } from './frame'
-import type { FrameMemory } from './frameMemory'
+import { carriesRequest, type FrameMemory } from './frameMemory'
 
 export function TabBar({ memory }: { memory: FrameMemory }) {
   const location = useLocation()
+  const navigate = useNavigate()
   const frame = frameFor(location.pathname)
   const path = normalizePath(location.pathname)
 
@@ -26,7 +27,7 @@ export function TabBar({ memory }: { memory: FrameMemory }) {
         const lit = frame.tab?.key === tab.key
         const atRoot = lit && path === tab.root
         // A tab that is not lit leads to where it was. The lit one leads to its start; already there (whatever the
-        // query string says) it does not navigate, so the filters written in the address stay.
+        // query string says) the address stays as it is, so the filters written in it stay.
         const target = lit ? null : memory.targetFor(tab)
         const Icon = tab.icon
         return (
@@ -50,6 +51,15 @@ export function TabBar({ memory }: { memory: FrameMemory }) {
               if (atRoot) {
                 event.preventDefault()
                 window.scrollTo({ top: 0, behavior: scrollBehavior() })
+                // What the start was opened with was asked once: the entry forgets it, so neither a reload nor an
+                // «atrás» that lands here asks again. Nothing else moves: the page keeps what is on screen, and the
+                // scroll is the one just started.
+                if (carriesRequest(location.state)) {
+                  navigate(
+                    { pathname: location.pathname, search: location.search, hash: location.hash },
+                    { replace: true, state: null, preventScrollReset: true },
+                  )
+                }
               } else if (target) {
                 // Its scroll comes back too; the lit tab's start opens at the top.
                 memory.planRestore(target.to)

@@ -100,13 +100,13 @@ export class TrackerGapService {
     if (!/^\d{16}$/.test(friendId))
       throw new BadRequestException({
         code: 'tracker_friend_id',
-        message: 'Guardá tu friend_id de 16 dígitos del tracker en Más → Ajustes de la app.',
+        message: 'Guardá tu friend_id de 16 dígitos del tracker en Menú → Ajustes de la app.',
       })
     const link = before.link
     if (!link)
       throw new BadRequestException({
         code: 'dotgg_not_configured',
-        message: 'Pegá el link de exportación de ptcgpocket.gg en Más → Ajustes de la app: es la colección del juego.',
+        message: 'Pegá el link de exportación de ptcgpocket.gg en Menú → Ajustes de la app: es la colección del juego.',
       })
     // Whether the catalog's internal ids are the tracker's, asked alongside (GitHub may not answer).
     const compatibility = this.cardsCompatibility(catalogCommit)

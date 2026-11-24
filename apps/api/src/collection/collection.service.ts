@@ -167,7 +167,7 @@ export const TRACKER_NOT_MASTER =
   'La colección viene de ptcgpocket.gg: el tracker queda para comparar en Colección → Tracker al día. Para que vuelva a mandar el tracker, quitá el link de ptcgpocket.gg en Ajustes.'
 /** A link is stored but cannot be opened: the tracker stays paused, and the message says why. */
 export const TRACKER_PAUSED_UNREADABLE =
-  'Hay un link de ptcgpocket.gg guardado que no se puede leer (por ejemplo, porque cambió la clave del servidor): el tracker sigue en pausa hasta que lo pegues de nuevo o lo quites en Más → Ajustes de la app.'
+  'Hay un link de ptcgpocket.gg guardado que no se puede leer (por ejemplo, porque cambió la clave del servidor): el tracker sigue en pausa hasta que lo pegues de nuevo o lo quites en Menú → Ajustes de la app.'
 
 /** What `collection_imports.diff_summary` holds: parse metadata (fixed) plus the diff (refreshed while pending). */
 interface StoredImport {

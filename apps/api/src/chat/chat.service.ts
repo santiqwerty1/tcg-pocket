@@ -438,7 +438,7 @@ export class ChatService {
   }
 
   /**
-   * Santi's list (Más → Tokens de API): adds a participant or changes its channel, its rooms (the main one first) or
+   * Santi's list (Menú → Tokens de API): adds a participant or changes its channel, its rooms (the main one first) or
    * how its name is written. The bridge adds new ones only, in `room`: a PC or cloud session, never one already in
    * the list with another channel; one already there with the same channel joins `room` (`created`).
    */
@@ -588,7 +588,7 @@ export class ChatService {
     if (!found) {
       throw new BadRequestException({
         code: 'unknown_participant',
-        message: `«${name.trim()}» no está en la lista de participantes del chat (en la sala «${room}»: ${this.namesIn(list, room)}). Una sesión nueva la suma Santi en Más → Tokens de API.`,
+        message: `«${name.trim()}» no está en la lista de participantes del chat (en la sala «${room}»: ${this.namesIn(list, room)}). Una sesión nueva la suma Santi en Menú → Tokens de API.`,
         details: { participants: list.filter((participant) => inRoom(participant, room)).map((row) => row.name) },
       })
     }

@@ -254,7 +254,7 @@ export class AlertsService {
         level: 'warning',
         title: `Set nuevo en el tracker: ${fresh.join(', ')}`,
         detail:
-          'El tracker ya tiene cartas que el catálogo no conoce. Más → Catálogo → «Actualizar al último del tracker» muestra qué cambia antes de aplicarlo; después, Torneos → Ajustes propone la fila del set para la tabla de eras.',
+          'El tracker ya tiene cartas que el catálogo no conoce. Menú → Catálogo → «Actualizar al último del tracker» muestra qué cambia antes de aplicarlo; después, Torneos → Ajustes propone la fila del set para la tabla de eras.',
         link: '/mas/catalogo',
       })
     }
@@ -335,7 +335,7 @@ export class AlertsService {
         code: 'backup_drill',
         level: 'warning',
         title: 'Falló la prueba del backup',
-        detail: `El ${drill.at.slice(0, 10).split('-').reverse().join('/')}: ${drill.error ?? `al restaurarlo cambiaron ${(drill.differences ?? []).join(', ')}`}. Probalo de nuevo en Más → Copia de seguridad.`,
+        detail: `El ${drill.at.slice(0, 10).split('-').reverse().join('/')}: ${drill.error ?? `al restaurarlo cambiaron ${(drill.differences ?? []).join(', ')}`}. Probalo de nuevo en Menú → Copia de seguridad.`,
         link: '/mas/backup',
       })
     } else if (drill?.at && Date.now() - new Date(drill.at).getTime() > 40 * 24 * 60 * 60 * 1000) {
@@ -343,7 +343,7 @@ export class AlertsService {
         code: 'backup_drill',
         level: 'info',
         title: 'Hace más de 40 días que no se prueba el backup',
-        detail: 'La prueba corre sola el 1 de cada mes; podés correrla en Más → Copia de seguridad.',
+        detail: 'La prueba corre sola el 1 de cada mes; podés correrla en Menú → Copia de seguridad.',
         link: '/mas/backup',
       })
     }
@@ -436,7 +436,7 @@ export class AlertsService {
         forwarding
           ? 'El conector viejo se reenvía al hub.'
           : 'Sin HUB_MCP_TOKEN, el conector viejo solo dice adónde se mudó.'
-      } Se vuelve atrás en Más → Tokens de API.`,
+      } Se vuelve atrás en Menú → Tokens de API.`,
       link: '/mas/tokens',
     }))
   }
@@ -482,7 +482,7 @@ export class AlertsService {
         title: first
           ? `El token ${label} empezó a usarse (${row.client})`
           : `Un cliente nuevo usó el token ${label}: ${row.client}`,
-        detail: `${first ? 'Primer uso' : 'Primera vez'} el ${ownerDateTime(row.firstSeenAt)}.${first ? '' : ' Si no lo conectaste vos, revocalo en Más → Tokens de API y creá otro.'}`,
+        detail: `${first ? 'Primer uso' : 'Primera vez'} el ${ownerDateTime(row.firstSeenAt)}.${first ? '' : ' Si no lo conectaste vos, revocalo en Menú → Tokens de API y creá otro.'}`,
         link: '/mas/tokens',
       })
     }
@@ -649,7 +649,7 @@ export class AlertsService {
         code: 'backup_stale',
         level: 'warning',
         title: `Falló la copia diaria del ${ownerDateTime(new Date(backup.failure.at))}`,
-        detail: `${backup.failure.error.slice(0, 200)}. Bajá una copia a mano en Más → Copia de seguridad mientras tanto.`,
+        detail: `${backup.failure.error.slice(0, 200)}. Bajá una copia a mano en Menú → Copia de seguridad mientras tanto.`,
         link: '/mas/backup',
       })
     } else if (backup.enabled && (!backup.last || now - Date.parse(backup.last.at) > BACKUP_STALE_MS)) {
@@ -660,7 +660,7 @@ export class AlertsService {
           ? `No hay copia diaria desde el ${ownerDateTime(new Date(backup.last.at))}`
           : 'Todavía no hay ninguna copia diaria',
         detail:
-          'La copia corre sola a las 04:00. Mirá los logs del servidor y bajá una a mano en Más → Copia de seguridad.',
+          'La copia corre sola a las 04:00. Mirá los logs del servidor y bajá una a mano en Menú → Copia de seguridad.',
         link: '/mas/backup',
       })
     }
@@ -671,7 +671,7 @@ export class AlertsService {
         code: 'backup_offsite',
         level: 'warning',
         title: `Falló la subida de la copia a la nube del ${ownerDateTime(new Date(offsite.last.at))}`,
-        detail: `${(offsite.last.error ?? 'error desconocido').slice(0, 200)}. La copia sigue en la base; probá de nuevo en Más → Copia de seguridad.`,
+        detail: `${(offsite.last.error ?? 'error desconocido').slice(0, 200)}. La copia sigue en la base; probá de nuevo en Menú → Copia de seguridad.`,
         link: '/mas/backup',
       })
     } else if (
@@ -685,7 +685,7 @@ export class AlertsService {
         title: offsite.last
           ? `La copia no se sube a la nube desde el ${ownerDateTime(new Date(offsite.last.at))}`
           : 'Todavía no se subió ninguna copia a la nube',
-        detail: 'Se sube sola después de la copia de las 04:00. Probala a mano en Más → Copia de seguridad.',
+        detail: 'Se sube sola después de la copia de las 04:00. Probala a mano en Menú → Copia de seguridad.',
         link: '/mas/backup',
       })
     }
@@ -725,7 +725,7 @@ export class AlertsService {
         level: 'warning',
         title: `Falló la actualización del catálogo del ${ownerDateTime(new Date(catalog.lastSync.fetchedAt))}`,
         // Without the error's own closing period («cortado).. Sigue»).
-        detail: `${(catalog.lastSync.error ?? 'error desconocido').slice(0, 200).replace(/\.+$/, '')}. Sigue el catálogo anterior; probala de nuevo en Más → Catálogo.`,
+        detail: `${(catalog.lastSync.error ?? 'error desconocido').slice(0, 200).replace(/\.+$/, '')}. Sigue el catálogo anterior; probala de nuevo en Menú → Catálogo.`,
         link: '/mas/catalogo',
       })
     }

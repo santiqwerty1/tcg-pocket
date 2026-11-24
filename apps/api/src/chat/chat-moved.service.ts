@@ -1,6 +1,6 @@
 /**
  * The move of the session chat to the hub (D-030, T1b): the rooms Santi marked as moved, and where to. Turned on and
- * off by hand from his session (Más → Tokens de API). A moved room takes no writes in tcg-pocket any more: the bridge
+ * off by hand from his session (Menú → Tokens de API). A moved room takes no writes in tcg-pocket any more: the bridge
  * gets `410 chat_moved` with the hub's URL, and the old connector's `chat_read`/`chat_write` go to the hub (D5).
  */
 import { GoneException, Inject, Injectable } from '@nestjs/common'
