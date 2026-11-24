@@ -42,6 +42,8 @@ describe('routeExposure', () => {
     expect(routeExposure('GET', '/')).toBe('session')
     expect(routeExposure('GET', '/index.html')).toBe('session')
     expect(routeExposure('GET', '/sw.js')).toBe('session')
+    // The theme script of the app stays behind the session: the login page repeats its rule inline (login-page.ts).
+    expect(routeExposure('GET', '/look.js')).toBe('session')
     expect(routeExposure('GET', '/assets/index-abc123.js')).toBe('session')
     expect(routeExposure('GET', '/api/auth/me')).toBe('session')
     expect(routeExposure('POST', '/api/auth/logout')).toBe('session')

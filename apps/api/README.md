@@ -79,7 +79,7 @@ Sigue `docs/API.md`. Errores siempre como `{ error: { code, message, details? } 
 | Ruta | Acceso | Qué hace |
 |---|---|---|
 | `GET /healthz` | pública | `{ ok, version, catalogCommit, engineRev }` (health check de Fly). Hace `SELECT 1`: `503 unavailable` si la base no responde en 3 s. |
-| `GET /login` | pública | Página de ingreso autocontenida (correo, contraseña, código de 6 dígitos). Con sesión redirige a `/`. |
+| `GET /login` | pública | Página de ingreso autocontenida (correo, contraseña, código de 6 dígitos), con la paleta de la app y el tema elegido en el dispositivo (`localStorage['tcg.look']`; oscura por defecto y sin JavaScript). Sus dos scripts van en línea, con el nonce de la respuesta. Con sesión redirige a `/`. |
 | `POST /api/auth/login` | pública, 5 intentos / 15 min por IP (429 al 6.º; los exitosos también cuentan) | `{ email, password, totp? }` → `204` + cookie de sesión. Si la petición traía una sesión válida, se cierra y se reemplaza. Cada código TOTP vale para un solo ingreso (se guarda el último paso aceptado en `owner.totp_last_step`). |
 | `POST /api/auth/logout` | sesión | `204`; borra la sesión y la cookie. |
 | `GET /api/auth/me` | sesión | `{ email, totpEnabled }`. |
