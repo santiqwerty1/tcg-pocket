@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-11-24 desde la etiqueta `v1.0.0` (441 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-11-24 desde la etiqueta `v1.0.0` (444 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -90,6 +90,7 @@ _Borrador generado al 2026-11-24 desde la etiqueta `v1.0.0` (441 commits). Escri
 
 ### Corregido
 
+- name the Menú and Pruebas in server and MCP texts; a tab's start opens without router state (#195) (#193) `292add0`
 - stock snapshot waits for a connection like any query; freeze cached tournament fields (R-014) (#191, H-015) `4332401`
 - a CLI takes at most 6 connections; pool tests on the real pg-pool (R-014) (#186) `8926d97`
 - keep the pool's extra connections a minute idle (R-014) (#180) `fd08b01`
@@ -296,6 +297,8 @@ _Borrador generado al 2026-11-24 desde la etiqueta `v1.0.0` (441 commits). Escri
 
 ### Documentado
 
+- 24/11 — #195 in main; number 71.53–71.57 `3706f58`
+- 24/11 — phase 0 of mock-up D in main; number 71.1–71.52; egress after #191 measured (R-014) (#190, #193) `d7fc5e2`
 - 19–20/11 — #191 deployed, mock-up D chosen; number 69.8–69.17 and 70.6–70.12 (R-014) `bf04a5e`
 - mock-up D «Fusión» for the UI renewal (#189) (#182) `5510d1a`
 - 15/11 — Supabase egress on 14 and 15/11 and what a day is made of (R-014) `ff116cc`
