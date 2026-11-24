@@ -3,7 +3,7 @@
  * - `/api/mcp/chat`: the bridge between the chat file on Santi's PC and the cloud sessions. The coordinator's
  *   `chat.mjs` reads here what the cloud sessions wrote (`after` its own position, nothing marked read), copies here
  *   what was written at the PC, and can add a new session to the list. Only with a `chat:relay` token.
- * - `/api/chat/participants`: Santi's list of participants (Más → Tokens de API), with his session.
+ * - `/api/chat/participants`: Santi's list of participants (Menú → Tokens de API), with his session.
  * Rooms (13/10/2026): every bridge route takes `?sala=` («tcg» without it, so the bridge of before sees only «tcg»).
  * The move to the hub (D-030, T1b): a room Santi marked as moved answers every bridge route with `410 chat_moved`,
  * and `/api/chat/moved` is his switch.

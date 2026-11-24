@@ -1,6 +1,16 @@
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { MCP_PROMPTS, MCP_READ_TOOLS, MCP_WRITE_INSTRUCTIONS, MCP_WRITE_TOOLS } from '../../src/mcp/index.js'
+import {
+  MCP_CHAT_INSTRUCTIONS,
+  MCP_CHAT_TOOLS,
+  MCP_PROMPTS,
+  MCP_READ_TOOLS,
+  MCP_SERVER_INSTRUCTIONS,
+  MCP_WRITE_INSTRUCTIONS,
+  MCP_WRITE_TOOLS,
+} from '../../src/mcp/index.js'
 
 describe('MCP write tools (Fase 43 additions)', () => {
   const tools = Object.values(MCP_WRITE_TOOLS)
@@ -89,5 +99,56 @@ describe('MCP prompts', () => {
     expect(MCP_PROMPTS.weeklyReview.args.safeParse({}).success).toBe(true)
     expect(MCP_PROMPTS.weeklyReview.args.safeParse({ week: '5/10' }).success).toBe(false)
     expect(MCP_PROMPTS.deckCheckup.args.safeParse({}).success).toBe(false)
+  })
+})
+
+describe('the places of the app the MCP names', () => {
+  it('none is under «Más»: that tab is the Menú now, and Simulación and Practicar are views of Pruebas', () => {
+    const texts: Record<string, string> = {
+      'server instructions': MCP_SERVER_INSTRUCTIONS,
+      'write instructions': MCP_WRITE_INSTRUCTIONS,
+      'chat instructions': MCP_CHAT_INSTRUCTIONS,
+      [MCP_PROMPTS.weeklyReview.name]: MCP_PROMPTS.weeklyReview.text({ week: '2026-10-05' }),
+      [MCP_PROMPTS.pickToday.name]: MCP_PROMPTS.pickToday.text(),
+      [MCP_PROMPTS.deckCheckup.name]: MCP_PROMPTS.deckCheckup.text({ deck: '13' }),
+    }
+    for (const prompt of Object.values(MCP_PROMPTS)) {
+      texts[`${prompt.name} (menu)`] =
+        `${prompt.title}\n${prompt.description}\n${JSON.stringify(z.toJSONSchema(prompt.args))}`
+    }
+    for (const tool of [
+      ...Object.values(MCP_READ_TOOLS),
+      ...Object.values(MCP_WRITE_TOOLS),
+      ...Object.values(MCP_CHAT_TOOLS),
+    ]) {
+      // The descriptions of the arguments travel in the input schema.
+      texts[tool.name] = `${tool.title}\n${tool.description}\n${JSON.stringify(z.toJSONSchema(tool.input))}`
+    }
+    expect(Object.keys(texts).length).toBeGreaterThan(60)
+    // «Más → Tokens de API», and the tab named alone («los avisos que la app muestra en Más»).
+    const oldTab = /Más\s*→|\ben Más(?!\p{L})/u
+    expect(
+      Object.entries(texts)
+        .filter(([, text]) => oldTab.test(text))
+        .map(([name]) => name),
+    ).toEqual([])
+    expect(MCP_WRITE_INSTRUCTIONS).toContain('Menú → Tokens de API')
+    expect(MCP_READ_TOOLS.playGames.description).toContain('Pruebas → Practicar')
+    expect(MCP_READ_TOOLS.alertsList.description).toContain('en el Menú')
+  })
+
+  it('nor does any source of the domain, comments included: a reader of the code looks for the place by that name too', () => {
+    const src = join(import.meta.dirname, '..', '..', 'src')
+    const sources = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        const path = join(dir, entry.name)
+        if (entry.isDirectory()) return sources(path)
+        return entry.name.endsWith('.ts') ? [path] : []
+      })
+    const files = sources(src)
+    expect(files.length).toBeGreaterThan(100)
+    expect(
+      files.filter((file) => /Más\s*→/.test(readFileSync(file, 'utf8'))).map((file) => relative(src, file)),
+    ).toEqual([])
   })
 })

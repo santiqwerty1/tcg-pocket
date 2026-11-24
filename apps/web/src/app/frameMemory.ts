@@ -44,8 +44,14 @@ function withMark(state: unknown): Record<string, unknown> {
   return { ...(isRecord(state) ? state : {}), tabReturn: true }
 }
 
-/** The key the scroll is remembered under: the place, whatever history entry shows it. */
-const scrollKey = (place: { pathname: string; search: string }) => place.pathname + place.search
+/**
+ * True when the state of an entry holds more than the frame's mark: what a page was asked to open with (a list for the
+ * form of the Laboratorio, the text of a deck to import).
+ */
+export function carriesRequest(state: unknown): boolean {
+  const rest = withoutMark(state)
+  return rest !== null && rest !== undefined
+}
 
 export class FrameMemory {
   private readonly tabs = new Map<TabKey, Remembered>()
@@ -76,9 +82,11 @@ export class FrameMemory {
       this.tabs.set(frame.tab.key, { pathname: place.pathname, search, state: withoutMark(place.state) })
     }
 
+    // The scroll is kept under the address a tab or «Volver» comes back to, whatever history entry shows it: without
+    // the query keys that are orders, so what was scrolled at /partidas?mazo=5 is found again at /partidas.
+    this.screen = place.pathname + search
     // What the router has just applied: 0 on a new entry, the entry's own place on «atrás». Without this a screen
     // opened at the top from a page already at the top (no scroll event) would keep the Y of an older visit.
-    this.screen = scrollKey(place)
     this.scroll.set(this.screen, options.scrollY)
     const planned = this.pending
     this.pending = null
@@ -104,15 +112,18 @@ export class FrameMemory {
     return this.queries.get(normalizePath(pathname)) ?? ''
   }
 
-  /** Where a tab that is not lit leads: where it was (marked, unless that is its own start), or its start. */
+  /**
+   * Where a tab that is not lit leads: where it was, or its start. Any place but the tab's own start (a deeper screen, a
+   * sibling view) comes back marked, with the state it was opened with. The start (whatever its query string) comes
+   * back with neither: what a start was opened with is a request made once («Buscar variantes desde esta» fills the
+   * form of the Laboratorio), and every return to the tab would make it again.
+   */
   targetFor(tab: FrameTab): TabTarget {
     const remembered = this.tabs.get(tab.key)
     if (!remembered) return { to: tab.root, state: null }
-    const atRoot = normalizePath(remembered.pathname) === tab.root
-    return {
-      to: remembered.pathname + remembered.search,
-      state: atRoot ? remembered.state : withMark(remembered.state),
-    }
+    const to = remembered.pathname + remembered.search
+    if (normalizePath(remembered.pathname) === tab.root) return { to, state: null }
+    return { to, state: withMark(remembered.state) }
   }
 }
 

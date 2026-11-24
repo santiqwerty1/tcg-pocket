@@ -54,9 +54,9 @@ export interface DotggStatus extends DotggSyncState {
 }
 
 const EMPTY: DotggSyncState = { lastAttemptAt: null, result: null, error: null, previewId: null, automatic: false }
-const NOT_CONFIGURED = 'Pegá el link de exportación de ptcgpocket.gg en Más → Ajustes de la app.'
+const NOT_CONFIGURED = 'Pegá el link de exportación de ptcgpocket.gg en Menú → Ajustes de la app.'
 const UNREADABLE =
-  'El link de ptcgpocket.gg guardado no se puede leer (cambió la clave del servidor): pegalo de nuevo en Más → Ajustes de la app.'
+  'El link de ptcgpocket.gg guardado no se puede leer (cambió la clave del servidor): pegalo de nuevo en Menú → Ajustes de la app.'
 
 @Injectable()
 export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {

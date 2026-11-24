@@ -314,6 +314,136 @@ describe('each tab remembers where it was', () => {
     await user.click(tab('Mazos'))
     expect(router.state.location.state).toEqual({ text: 'Pikachu ex x2', tabReturn: true })
   })
+
+  /** What «Buscar variantes desde esta», on a search of the Laboratorio, opens the Laboratorio with. */
+  const REQUEST = {
+    exploreFrom: { cards: [{ cardId: 'B2-113', count: 2 }], energies: ['fire'], name: 'Lista de prueba' },
+    size: 20,
+    objective: { objective: 'mine' },
+  }
+  const bankSize = () => screen.findByRole('combobox', { name: 'Arquetipos del banco' })
+
+  it('the start of a tab opens without what it was once asked to open with: the Laboratorio, after «Buscar variantes desde esta»', async () => {
+    const user = userEvent.setup()
+    const router = renderAt('/mazos')
+    await bar()
+    await go(router, '/laboratorio', { state: REQUEST })
+    expect(await screen.findByText('Desde el laboratorio: Lista de prueba')).toBeInTheDocument()
+    expect(await bankSize()).toHaveTextContent('20 arquetipos')
+
+    await user.click(tab('Hoy'))
+    expect(tab('Pruebas')).toHaveAttribute('href', '/laboratorio')
+    await user.click(tab('Pruebas'))
+    expect(where(router)).toBe('/laboratorio')
+    expect(router.state.historyAction).toBe('PUSH')
+    expect(router.state.location.state).toBeNull()
+    // The Laboratorio as the bar opens it: its own bank, and no list waiting in the form.
+    expect(await bankSize()).toHaveTextContent('15 arquetipos')
+    expect(screen.queryByText(/Desde el laboratorio/)).toBeNull()
+  })
+
+  it('the same at a start with a query string: the address comes back, the request does not', async () => {
+    const user = userEvent.setup()
+    const router = renderAt('/partidas')
+    await bar()
+    await go(router, '/mazos?armados=1', { state: { text: 'Pikachu ex x2' } })
+    await user.click(tab('Hoy'))
+    expect(tab('Mazos')).toHaveAttribute('href', '/mazos?armados=1')
+    await user.click(tab('Mazos'))
+    expect(where(router)).toBe('/mazos?armados=1')
+    expect(router.state.location.state).toBeNull()
+  })
+
+  it('a start written another way (/Laboratorio/) is the start too: the address comes back as written, the request does not', async () => {
+    const user = userEvent.setup()
+    const router = renderAt('/mazos')
+    await bar()
+    await go(router, '/Laboratorio/?era=C1', { state: REQUEST })
+    await user.click(tab('Hoy'))
+    await user.click(tab('Pruebas'))
+    expect(where(router)).toBe('/Laboratorio/?era=C1')
+    expect(router.state.location.state).toBeNull()
+  })
+
+  it('only the start: a sibling view (Simulación, in Pruebas) comes back with what it was opened with, marked', async () => {
+    const user = userEvent.setup()
+    const router = renderAt('/mazos')
+    await bar()
+    await go(router, '/simulacion', { state: { from: 'a page' } })
+    await user.click(tab('Hoy'))
+    await user.click(tab('Pruebas'))
+    expect(where(router)).toBe('/simulacion')
+    expect(router.state.location.state).toEqual({ from: 'a page', tabReturn: true })
+  })
+
+  it('a tap on the lit tab at its start forgets what the start was opened with: the entry is replaced, the page stays', async () => {
+    const user = userEvent.setup()
+    const router = renderAt('/mazos')
+    await bar()
+    await go(router, '/laboratorio?era=B4a', { state: REQUEST })
+    expect(await screen.findByText('Desde el laboratorio: Lista de prueba')).toBeInTheDocument()
+    const opened = router.state.location.key
+    const scrollTo = vi.spyOn(window, 'scrollTo')
+
+    // With a modifier the tap is the browser's: nothing is forgotten in this window.
+    const noLoad = (event: Event) => event.preventDefault()
+    window.addEventListener('click', noLoad)
+    fireEvent.click(tab('Pruebas'), { ctrlKey: true })
+    window.removeEventListener('click', noLoad)
+    expect(router.state.location.key).toBe(opened)
+    expect(router.state.location.state).toEqual(REQUEST)
+
+    await user.click(tab('Pruebas'))
+    expect(router.state.historyAction).toBe('REPLACE')
+    expect(router.state.location.key).not.toBe(opened)
+    expect(where(router)).toBe('/laboratorio?era=B4a')
+    expect(router.state.location.state).toBeNull()
+    // The page goes to the top once, by the tab: the router does not open the entry again at the top by itself.
+    expect(scrollTo.mock.calls).toEqual([[{ top: 0, behavior: 'smooth' }]])
+    // Nothing on screen is lost: the form keeps the list, and the bank its size.
+    expect(screen.getByText('Desde el laboratorio: Lista de prueba')).toBeInTheDocument()
+    expect(await bankSize()).toHaveTextContent('20 arquetipos')
+
+    // With nothing left to forget, a tap does not navigate, as at any start.
+    const { key } = router.state.location
+    await user.click(tab('Pruebas'))
+    expect(router.state.location.key).toBe(key)
+    expect(router.state.historyAction).toBe('REPLACE')
+    expect(scrollTo).toHaveBeenCalledTimes(2)
+  })
+
+  it('a start whose state is only the frame’s mark has nothing to forget: a tap on its tab does not navigate', async () => {
+    const user = userEvent.setup()
+    const router = renderAt('/mazos/1')
+    await bar()
+    await user.click(tab('Hoy'))
+    await user.click(tab('Mazos'))
+    somethingBehind()
+    // «Volver» goes up to the list, in an entry that carries the mark.
+    await user.click(screen.getByRole('button', { name: 'Volver' }))
+    expect(where(router)).toBe('/mazos')
+    expect(router.state.location.state).toEqual({ tabReturn: true })
+    const { key } = router.state.location
+    await user.click(tab('Mazos'))
+    expect(router.state.location.key).toBe(key)
+    expect(router.state.location.state).toEqual({ tabReturn: true })
+  })
+
+  it('away from its start the lit tab leads to the start, also from a screen opened with a request: that entry stays as it is', async () => {
+    const user = userEvent.setup()
+    const router = renderAt('/mazos')
+    await bar()
+    await go(router, '/mazos/importar', { state: { text: 'Pikachu ex x2' } })
+    await title('Importar mazos')
+    await user.click(tab('Mazos'))
+    expect(where(router)).toBe('/mazos')
+    expect(router.state.historyAction).toBe('PUSH')
+    expect(router.state.location.state).toBeNull()
+    // «Atrás» finds the import page with its list: the tap did not touch the entry it left.
+    await act(() => router.navigate(-1))
+    expect(where(router)).toBe('/mazos/importar')
+    expect(router.state.location.state).toEqual({ text: 'Pikachu ex x2' })
+  })
 })
 
 describe('«Volver» on a screen a tab came back to', () => {
@@ -550,6 +680,21 @@ describe('the scroll of a place a tab comes back to', () => {
     await user.click(screen.getByRole('button', { name: 'Volver' }))
     expect(where(router)).toBe('/mazos?armados=1')
     expect(scrollTo).toHaveBeenLastCalledWith(0, 420)
+  })
+
+  it('what was scrolled at an address with an order (/partidas?mazo=3) comes back at the address the tab returns to', async () => {
+    const user = userEvent.setup()
+    const router = renderAt('/partidas?mazo=3')
+    await bar()
+    scrollBy(260)
+    y = 0
+    await user.click(tab('Mazos'))
+    expect(tab('Hoy')).toHaveAttribute('href', '/partidas')
+
+    const scrollTo = vi.spyOn(window, 'scrollTo')
+    await user.click(tab('Hoy'))
+    expect(where(router)).toBe('/partidas')
+    expect(scrollTo).toHaveBeenLastCalledWith(0, 260)
   })
 
   it('a place whose page is not tall enough yet is put back as soon as it grows', async () => {
