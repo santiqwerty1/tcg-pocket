@@ -1,7 +1,8 @@
 /**
  * What the tournament statistics depend on besides the data: the minimum size of a tournament (`app_settings`
  * `minPlayers`), the era table (`set_releases`, seeded with PLAN A.5 and edited by the owner) and the archetype
- * merges. `TournamentDataVersion` changes whenever any of it (or the data) changes, so cached datasets expire.
+ * merges. `TournamentDataVersion` changes whenever any of it (or the data) changes, so cached datasets expire (the rows
+ * of each tournament stay, under their own stamps: `TournamentRowsCache`).
  */
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common'
 import { DEFAULT_MIN_PLAYERS, DEFAULT_SET_RELEASES, type SetRelease } from '@tcg/domain'
@@ -13,13 +14,24 @@ import { PrismaService } from '../prisma/prisma.service.js'
 @Injectable()
 export class TournamentDataVersion {
   private value = 0
+  private rowsValue = 0
 
   current(): number {
     return this.value
   }
 
-  bump(): void {
+  /**
+   * R-014: changes when stored tournament rows may have been rewritten without their stamps moving (`fetched_at`,
+   * `pairings_fetched_at`); the rows kept between versions are then read again.
+   */
+  rows(): number {
+    return this.rowsValue
+  }
+
+  /** `rows`: besides the datasets, forget the tournament rows kept between versions (a backup restore). */
+  bump(options: { rows?: boolean } = {}): void {
     this.value += 1
+    if (options.rows) this.rowsValue += 1
   }
 }
 

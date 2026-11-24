@@ -6,6 +6,7 @@ import { BACKUP_BLOBS_KEPT, BackupService } from '../src/backup/backup.service.j
 import { BackupCronService } from '../src/backup/backup-cron.service.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
+import { TournamentDataVersion } from '../src/tournaments/tournament-settings.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
@@ -712,5 +713,53 @@ describe('backup and settings (e2e)', () => {
     expect(response.body.notices.some((n: string) => n.includes('anterior a pokemon-zone'))).toBe(true)
     expect(response.body.counts.pokemonZoneImports).toBe(0)
     expect(await test.prisma.pokemonZoneImport.findMany({ select: { id: true, sha256: true } })).toEqual(now)
+  })
+
+  it('R-014: after a restore an import id can be another import, and its own rows are the ones read', async () => {
+    const version = test.app.get(TournamentDataVersion)
+    const current = (await get('/api/backup/export').responseType('blob')).body as Buffer
+    const restore = async () =>
+      expect((await post('/api/backup/import?mode=replace').attach('file', current, 'backup.json.gz')).status).toBe(200)
+    // The real CSV with one more copy of one card (a line without twins, so the diff is that card alone).
+    const lines = readFileSync(CSV_PATH, 'utf8').split('\n')
+    const header = lines[0] as string
+    const body = lines.slice(1).filter((line) => line.trim() !== '')
+    const internalIds = body.map((line) => line.split(',')[2])
+    const single = body.filter((line) => internalIds.filter((id) => id === line.split(',')[2]).length === 1)
+    const plusOne = (target: string) =>
+      [
+        header,
+        ...body.map((line) => {
+          if (line !== target) return line
+          const cells = line.split(',')
+          cells[3] = String(Number(cells[3]) + 1)
+          return cells.join(',')
+        }),
+      ].join('\n')
+    const [lineA, lineB] = single as [string, string]
+    const [cardA, cardB] = [lineA.split(',')[0], lineB.split(',')[0]]
+    const changed = async (id: string) =>
+      ((await get(`/api/collection/imports/${id}`)).body.changes as { cardIds: string[] }[]).flatMap(
+        (change) => change.cardIds,
+      )
+
+    // The restore sets the imports' sequence right after the file's: the next import takes that id.
+    await restore()
+    const a = await post('/api/collection/imports').send({ csv: plusOne(lineA) })
+    expect(a.status).toBe(201)
+    const inA = await changed(a.body.id)
+    expect(inA).toContain(cardA)
+    expect(inA).not.toContain(cardB)
+    // The restore takes import A away and sets the sequence back: import B gets A's id, with other rows.
+    const rowsBefore = version.rows()
+    await restore()
+    expect(version.rows()).toBe(rowsBefore + 1)
+    const b = await post('/api/collection/imports').send({ csv: plusOne(lineB) })
+    expect(b.body.id).toBe(a.body.id)
+    // A pending CSV import is compared again from its stored rows: B's, not the ones kept of A.
+    const inB = await changed(b.body.id)
+    expect(inB).toContain(cardB)
+    expect(inB).not.toContain(cardA)
+    expect((await post(`/api/collection/imports/${b.body.id}/discard`)).status).toBe(204)
   })
 })

@@ -2,12 +2,16 @@ import { readFileSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { SchedulerRegistry } from '@nestjs/schedule'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
+import type { Prisma } from '../src/generated/prisma/client.js'
+import { PrismaService } from '../src/prisma/prisma.service.js'
 import { type Clock, type FetchLike, LimitlessClient, LimitlessTransport } from '../src/tournaments/limitless.client.js'
 import { TournamentDataVersion } from '../src/tournaments/tournament-settings.js'
 import { TournamentSyncService } from '../src/tournaments/tournament-sync.service.js'
 import { TournamentsService } from '../src/tournaments/tournaments.service.js'
+import { countDatabaseBytes } from './egress.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
@@ -556,6 +560,146 @@ describe('tournaments (e2e)', () => {
       expect(builds).toBe(3)
     } finally {
       internals.buildDataset = original
+    }
+  })
+
+  it('R-014: a new data version reads again only the tournaments that changed; the numbers are those of reading everything', async () => {
+    const version = test.app.get(TournamentDataVersion)
+    const COPY = 'r014-copia-del-pmpt-45'
+    const views = async () => ({
+      archetypes: (await get('/api/tournaments/archetypes')).body as {
+        scope: { tournaments: number; mean: RecordRow }
+      },
+      lists: (await get('/api/tournaments/lists?limit=500&kind=name')).body as unknown,
+      matchups: (await get('/api/tournaments/matchups?top=12')).body as { coverage: { matches: number } },
+      noex: (await get('/api/tournaments/archetypes?format=NOEX')).body as unknown,
+    })
+    // The minute's catalog check (and nothing else of the tests) in a measured window: paused.
+    const minute = test.app.get(SchedulerRegistry).getCronJob('catalog-memory')
+    minute.stop()
+    const counter = countDatabaseBytes(test.app.get(PrismaService).pool)
+    const measured = async () => {
+      const before = counter.bytes()
+      const out = await views()
+      return { out, bytes: counter.bytes() - before }
+    }
+    /** Everything read from the database again (what a restore does): what the views must say. */
+    const reference = async () => {
+      version.bump({ rows: true })
+      return measured()
+    }
+    /** Rewrites the copy's lists as the sync does, one player with `extraWins` more; `stamp`: with a new `fetched_at`. */
+    const rewrite = async (extraWins: number, stamp: boolean) => {
+      const rows = await test.prisma.tournamentEntry.findMany({ where: { tournamentId: COPY }, orderBy: { id: 'asc' } })
+      const target = rows.find((row) => row.decklist !== null && row.archetypeId !== null)
+      await test.prisma.$transaction([
+        test.prisma.tournamentEntry.deleteMany({ where: { tournamentId: COPY } }),
+        test.prisma.tournamentEntry.createMany({
+          data: rows.map(({ id, decklist, ...row }) => ({
+            ...row,
+            wins: id === target?.id ? row.wins + extraWins : row.wins,
+            decklist: (decklist ?? undefined) as Prisma.InputJsonValue | undefined,
+          })),
+        }),
+        ...(stamp ? [test.prisma.tournament.update({ where: { id: COPY }, data: { fetchedAt: new Date() } })] : []),
+      ])
+    }
+    try {
+      const full = await reference()
+      // A new version with nothing new (a sync that found nothing, an alias, an era edit): no list or round is read.
+      version.bump()
+      const same = await measured()
+      expect(same.out).toEqual(full.out)
+      expect(same.bytes).toBeLessThan(full.bytes / 10)
+
+      // A second tournament in the era (PMPT #45 again, an hour later), as the sync stores it.
+      const source = await test.prisma.tournament.findUniqueOrThrow({ where: { id: BIG } })
+      await test.prisma.tournament.create({
+        data: {
+          id: COPY,
+          name: `${source.name} (copia)`,
+          date: new Date(source.date.getTime() + 3_600_000),
+          formatRaw: source.formatRaw,
+          format: source.format,
+          players: source.players,
+          details: (source.details ?? undefined) as Prisma.InputJsonValue | undefined,
+          status: 'complete',
+          standingsSha256: source.standingsSha256,
+          fetchedAt: new Date(),
+          pairingsFetchedAt: new Date(),
+        },
+      })
+      const entries = await test.prisma.tournamentEntry.findMany({
+        where: { tournamentId: BIG },
+        orderBy: { id: 'asc' },
+      })
+      await test.prisma.tournamentEntry.createMany({
+        data: entries.map(({ id: _id, decklist, ...row }) => ({
+          ...row,
+          tournamentId: COPY,
+          decklist: (decklist ?? undefined) as Prisma.InputJsonValue | undefined,
+        })),
+      })
+      const pairings = await test.prisma.tournamentPairing.findMany({
+        where: { tournamentId: BIG },
+        orderBy: { id: 'asc' },
+      })
+      await test.prisma.tournamentPairing.createMany({
+        data: pairings.map(({ id: _id, ...row }) => ({ ...row, tournamentId: COPY })),
+      })
+      version.bump()
+      const grown = await measured()
+      const grownFull = await reference()
+      expect(grown.out).toEqual(grownFull.out)
+      expect(grown.out.archetypes.scope.tournaments).toBe(full.out.archetypes.scope.tournaments + 1)
+      expect(grown.out.matchups.coverage.matches).toBe(full.out.matchups.coverage.matches * 2)
+      // Only the new tournament's lists and rounds were read, not PMPT #45's again (nor NOEX's).
+      expect(grown.bytes).toBeLessThan(grownFull.bytes * 0.6)
+
+      // The sync downloads the copy again with a result fixed: new rows under a new stamp.
+      await rewrite(1, true)
+      version.bump()
+      const fixed = await measured()
+      expect(fixed.out.archetypes.scope.mean.record.wins).toBe(grownFull.out.archetypes.scope.mean.record.wins + 1)
+      expect(fixed.out).toEqual((await reference()).out)
+
+      // Its rounds downloaded again, with the first round's results the other way: only under the new stamp.
+      const rounds = await test.prisma.tournamentPairing.findMany({
+        where: { tournamentId: COPY },
+        orderBy: { id: 'asc' },
+      })
+      const flip = (result: string) => (result === 'p1' ? 'p2' : result === 'p2' ? 'p1' : result)
+      await test.prisma.$transaction([
+        test.prisma.tournamentPairing.deleteMany({ where: { tournamentId: COPY } }),
+        test.prisma.tournamentPairing.createMany({
+          data: rounds.map(({ id: _id, ...row }) => ({
+            ...row,
+            result: row.round === 1 ? flip(row.result) : row.result,
+          })),
+        }),
+        test.prisma.tournament.update({ where: { id: COPY }, data: { pairingsFetchedAt: new Date() } }),
+      ])
+      version.bump()
+      const flipped = await measured()
+      expect(flipped.out.matchups).not.toEqual(fixed.out.matchups)
+      expect(flipped.out).toEqual((await reference()).out)
+
+      // Rows rewritten without moving the stamp (nothing in the app does that) are seen after a restore's version.
+      await rewrite(1, false)
+      version.bump()
+      expect((await measured()).out).toEqual(flipped.out)
+      const restored = await reference()
+      expect(restored.out.archetypes.scope.mean.record.wins).toBe(fixed.out.archetypes.scope.mean.record.wins + 1)
+
+      // The copy leaves the era (it grew after it was downloaded: «listed» again): back to the first numbers.
+      await test.prisma.tournament.update({ where: { id: COPY }, data: { status: 'listed' } })
+      version.bump()
+      expect((await measured()).out).toEqual(full.out)
+    } finally {
+      counter.stop()
+      minute.start()
+      await test.prisma.tournament.deleteMany({ where: { id: COPY } })
+      version.bump()
     }
   })
 
