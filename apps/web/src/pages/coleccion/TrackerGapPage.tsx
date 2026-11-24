@@ -44,7 +44,7 @@ export function TrackerGapPage() {
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Spinner /> Leyendo ptcgpocket.gg y el tracker…
           </p>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-2">
             {SKELETONS.map((id) => (
               <Skeleton key={id} className="h-20" />
             ))}
@@ -55,7 +55,7 @@ export function TrackerGapPage() {
           <ErrorState error={gap.error} onRetry={() => gap.refetch()} />
           {isApiError(gap.error) && ['dotgg_not_configured', 'tracker_friend_id'].includes(gap.error.code) ? (
             <Link to="/mas/ajustes" className="text-sm underline">
-              Ir a Más → Ajustes de la app
+              Ir a Menú → Ajustes de la app
             </Link>
           ) : null}
         </>
@@ -79,7 +79,7 @@ function GapView({ gap, refreshing, onRefresh }: { gap: TrackerGap; refreshing: 
           Volver a comparar
         </Button>
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2">
         <Stat
           label="Cartas que cambian"
           value={formatNumber(s.cards)}

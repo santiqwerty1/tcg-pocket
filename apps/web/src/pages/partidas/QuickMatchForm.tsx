@@ -14,6 +14,7 @@ import { DeckNumber } from '@/components/DeckNumber'
 import { Spinner } from '@/components/ListState'
 import { LuckCard } from '@/components/LuckCard'
 import { RivalNoteHint } from '@/components/RivalNote'
+import { StickyActions } from '@/components/StickyActions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -184,13 +185,13 @@ export function QuickMatchForm({
           Agregar nota
         </Button>
       )}
-      {/* Fase 41: always in reach above the bottom bar, however long the form above gets. */}
-      <div className="sticky bottom-20 z-20 rounded-lg border bg-background/95 p-2 backdrop-blur">
-        <Button type="submit" size="lg" className="h-14 w-full text-base" disabled={!canSave}>
+      {/* Fase 41: always in reach above the tab bar, however long the form above gets. */}
+      <StickyActions>
+        <Button type="submit" size="lg" className="w-full" disabled={!canSave}>
           {create.isPending ? <Spinner /> : <SaveIcon data-icon="inline-start" />}
           Guardar partida
         </Button>
-      </div>
+      </StickyActions>
       {rankAsk ? (
         <RankPrompt
           key={rankAsk.key}

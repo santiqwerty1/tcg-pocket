@@ -47,7 +47,7 @@ export function useRevokeToken() {
   })
 }
 
-/** D-021: who takes part in the session chat (Más → Tokens de API). */
+/** D-021: who takes part in the session chat (Menú → Tokens de API). */
 export function useChatParticipants() {
   return useQuery({
     queryKey: tokenKeys.chatParticipants,

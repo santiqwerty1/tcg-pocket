@@ -115,7 +115,7 @@ export function CardSheet({
             </SheetHeader>
             {actions ? <div className="flex flex-col gap-1.5">{actions}</div> : null}
             <div className="flex gap-3">
-              <div className="aspect-[63/88] w-36 shrink-0 overflow-hidden rounded-md border sm:w-48">
+              <div className="aspect-[63/88] w-36 shrink-0 overflow-hidden rounded-md border">
                 {edition?.imageUrl ? (
                   <img
                     src={edition.imageUrl}
@@ -218,7 +218,7 @@ export function CardGridSheet({
         </SheetHeader>
         {energies && energies.length > 0 ? <EnergyDots energies={energies} /> : null}
         {cards.length === 0 ? <p className="text-sm text-muted-foreground">Nada todavía.</p> : null}
-        <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+        <div className="grid grid-cols-4 gap-2">
           {cards.map(({ engineId, count }, index) => (
             <button
               // biome-ignore lint/suspicious/noArrayIndexKey: discard piles repeat cards

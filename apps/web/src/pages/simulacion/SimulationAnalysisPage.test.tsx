@@ -133,6 +133,13 @@ it('renders summary, bot rankings, uncertainty, duration and generated findings 
   const findings = screen.getByRole('heading', { name: 'Hallazgos' }).closest('section') as HTMLElement
   // Testing Library compares a string as given against the text with its spaces collapsed (the no-break ones too).
   expect(within(findings).getByText((view.findings[0]?.text ?? '').replace(/\s+/g, ' '))).toBeVisible()
+  // A finding can hold two engine revisions in a row, with no place to break: each line may break anywhere, or it
+  // would leave the 480 px column and widen the page of a phone (jsdom has no layout; the screens suite measures it).
+  const lines = within(findings).getAllByRole('listitem')
+  expect(lines).toHaveLength(view.findings.length)
+  for (const line of lines) expect(line).toHaveClass('wrap-anywhere')
+  // The page's own title is not a second h1: the header has the screen's.
+  expect(screen.getByRole('heading', { name: 'Análisis de simulaciones' }).tagName).toBe('H2')
   expect(screen.getByText(/fuente con su n e intervalo/)).toHaveTextContent(
     'partidas propias de Santi permanecen separadas',
   )

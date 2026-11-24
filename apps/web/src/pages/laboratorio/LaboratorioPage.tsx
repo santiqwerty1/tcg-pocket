@@ -275,7 +275,7 @@ function CardLocks({
   return (
     <fieldset className="flex flex-col gap-1.5">
       <legend className="text-sm font-medium">Cartas que no se tocan</legend>
-      <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+      <ul className="grid grid-cols-1 gap-1">
         {cards.map((entry) => {
           const id = `lock-${entry.cardId}`
           return (

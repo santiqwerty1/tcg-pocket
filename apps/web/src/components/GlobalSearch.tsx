@@ -1,10 +1,10 @@
 /**
- * Buscador único (Fase 27): the magnifier in the header (or «/» on a keyboard) opens one box for cards, decks,
- * tournament archetypes, your matches, notes by rival and events. Enter opens the first result.
+ * Buscador único (Fase 27): the magnifier, last cell of the tab bar (or «/» on a keyboard), opens one box for cards,
+ * decks, tournament archetypes, your matches, notes by rival and events. Enter opens the first result.
  */
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { SearchIcon } from 'lucide-react'
-import { type KeyboardEvent, useEffect, useState } from 'react'
+import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { z } from 'zod'
 import { request } from '@/api/client'
@@ -100,6 +100,9 @@ function groupsOf(data: SearchResult): { title: string; hits: Hit[] }[] {
 
 export function GlobalSearch() {
   const navigate = useNavigate()
+  const trigger = useRef<HTMLButtonElement>(null)
+  // True from the moment a result is chosen until the dialog is gone: where the focus goes then is another place.
+  const opened = useRef(false)
   const [open, setOpen] = useState(false)
   const [text, setText] = useState('')
   const q = useDebouncedValue(text.trim(), 250)
@@ -113,19 +116,26 @@ export function GlobalSearch() {
   const groups = search.data && q.length >= 2 ? groupsOf(search.data) : []
   const first = groups[0]?.hits[0]
 
+  const show = useCallback(() => {
+    // A dialog opened again before it was gone never said where its focus went: this opening starts clean.
+    opened.current = false
+    setOpen(true)
+  }, [])
+
   useEffect(() => {
     const onKey = (event: globalThis.KeyboardEvent) => {
       const target = event.target as HTMLElement | null
       if (event.key !== '/' || (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return
       if (target?.isContentEditable) return
       event.preventDefault()
-      setOpen(true)
+      show()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [show])
 
   function go(to: string) {
+    opened.current = true
     setOpen(false)
     setText('')
     navigate(to)
@@ -140,11 +150,32 @@ export function GlobalSearch() {
 
   return (
     <>
-      <Button variant="ghost" size="icon" aria-label="Buscar" onClick={() => setOpen(true)}>
+      <Button
+        ref={trigger}
+        variant="outline"
+        size="icon"
+        aria-label="Buscar"
+        className="justify-self-end rounded-full"
+        onClick={show}
+      >
         <SearchIcon className="size-5" />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="top-4 max-h-[85vh] translate-y-0 overflow-y-auto sm:top-12">
+        <DialogContent
+          className="top-4 max-h-[85vh] translate-y-0 overflow-y-auto sm:top-12"
+          // Closed without a result (Escape, the scrim), the focus returns to the magnifier: opened with «/» nothing
+          // had it. With a result opened it goes to the new screen instead: the magnifier is the last stop of the
+          // document, and the next Tab from there would leave the page that has just opened.
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            if (opened.current) {
+              opened.current = false
+              document.getElementById('principal')?.focus({ preventScroll: true })
+            } else {
+              trigger.current?.focus()
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle>Buscar</DialogTitle>
             <DialogDescription>Cartas, mazos, arquetipos, partidas, notas y eventos.</DialogDescription>

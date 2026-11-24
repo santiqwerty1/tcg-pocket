@@ -1,7 +1,10 @@
 /**
- * The look of the app on this device: for now, the theme. The choice lives in `localStorage['tcg.look']` as
- * `{ "theme": "dark" | "light" | "system" }` (dark when nothing valid is stored) and reaches the page as
- * `data-theme="dark" | "light"` on <html>, always resolved, plus the `theme-color` meta.
+ * The look of the app on this device: the theme, how much it moves and where the views of a screen go. The choice
+ * lives in `localStorage['tcg.look']` as `{ "theme": "dark" | "light" | "system", "motion": "full" | "subtle" | "none",
+ * "views": "bottom" | "top" }` (dark, full and bottom when nothing valid is stored). The theme and the motion reach
+ * the page as attributes of <html>, always resolved: `data-theme="dark" | "light"` (plus the `theme-color` meta) and
+ * `data-motion="full" | "subtle" | "none"`, which is «none» whenever the system asks to reduce motion. The place of
+ * the views is read by the shell from `useLook()`.
  *
  * `public/look.js` applies the same rules before the first paint (the CSP forbids an inline script); the two are
  * tested against the same cases in `look.test.ts`. It is not personal data: logging out keeps it.
@@ -10,9 +13,13 @@ import { useSyncExternalStore } from 'react'
 
 export type ThemeChoice = 'dark' | 'light' | 'system'
 export type ResolvedTheme = 'dark' | 'light'
+export type MotionLevel = 'full' | 'subtle' | 'none'
+export type ViewsPlace = 'bottom' | 'top'
 
 export interface Look {
   theme: ThemeChoice
+  motion: MotionLevel
+  views: ViewsPlace
 }
 
 export const LOOK_KEY = 'tcg.look'
@@ -20,7 +27,8 @@ export const LOOK_KEY = 'tcg.look'
 export const THEME_COLOR: Record<ResolvedTheme, string> = { dark: '#0a0e14', light: '#f1eee8' }
 
 const LIGHT_QUERY = '(prefers-color-scheme: light)'
-const DEFAULT_THEME: ThemeChoice = 'dark'
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
+const DEFAULT_LOOK: Look = { theme: 'dark', motion: 'full', views: 'bottom' }
 
 /** What was chosen while the storage refused to keep it (blocked or full): it holds until the page is closed. */
 let unsaved: Record<string, unknown> | null = null
@@ -40,29 +48,52 @@ function readStored(): Record<string, unknown> {
 
 const isThemeChoice = (value: unknown): value is ThemeChoice =>
   value === 'dark' || value === 'light' || value === 'system'
+const isMotionLevel = (value: unknown): value is MotionLevel =>
+  value === 'full' || value === 'subtle' || value === 'none'
+const isViewsPlace = (value: unknown): value is ViewsPlace => value === 'bottom' || value === 'top'
 
 export function readLook(): Look {
-  const { theme } = readStored()
-  return { theme: isThemeChoice(theme) ? theme : DEFAULT_THEME }
+  const { theme, motion, views } = readStored()
+  return {
+    theme: isThemeChoice(theme) ? theme : DEFAULT_LOOK.theme,
+    motion: isMotionLevel(motion) ? motion : DEFAULT_LOOK.motion,
+    views: isViewsPlace(views) ? views : DEFAULT_LOOK.views,
+  }
 }
 
-function systemTheme(): MediaQueryList | null {
-  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-    ? window.matchMedia(LIGHT_QUERY)
-    : null
+function systemAsks(query: string): MediaQueryList | null {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(query) : null
 }
 
 /** «system» is light only when the system asks for light; anything else is dark. */
 export function resolveTheme(choice: ThemeChoice): ResolvedTheme {
   if (choice !== 'system') return choice
-  return systemTheme()?.matches ? 'light' : 'dark'
+  return systemAsks(LIGHT_QUERY)?.matches ? 'light' : 'dark'
 }
 
-/** Puts the look on the page: the attribute the tokens hang from and the colour of the browser's bars. */
+/** True while the system asks to reduce motion: the level is then «none», whatever was chosen. */
+export function reducedBySystem(): boolean {
+  return systemAsks(REDUCED_MOTION_QUERY)?.matches === true
+}
+
+export function resolveMotion(choice: MotionLevel): MotionLevel {
+  return reducedBySystem() ? 'none' : choice
+}
+
+/**
+ * How a scroll asked by code moves: at once with «none», smooth otherwise. Asked per call, because a
+ * `scroll-behavior: smooth` on the page would also animate the router's resets on every navigation.
+ */
+export function scrollBehavior(): ScrollBehavior {
+  return resolveMotion(readLook().motion) === 'none' ? 'auto' : 'smooth'
+}
+
+/** Puts the look on the page: the attributes the tokens hang from and the colour of the browser's bars. */
 export function applyLook(look: Look = readLook()): ResolvedTheme {
   const resolved = resolveTheme(look.theme)
   if (typeof document === 'undefined') return resolved
   document.documentElement.setAttribute('data-theme', resolved)
+  document.documentElement.setAttribute('data-motion', resolveMotion(look.motion))
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[resolved])
   return resolved
 }
@@ -91,18 +122,19 @@ function onStorage(event: StorageEvent): void {
   if (event.key === null || event.key === LOOK_KEY) refresh()
 }
 
-/** The system's colour scheme once it is being watched; kept here so its listener lives as long as the page. */
-let watched: MediaQueryList | null | undefined
+/** What the system says once it is being watched; kept here so the listeners live as long as the page. */
+let watched: (MediaQueryList | null)[] | undefined
 
 /**
  * Applies the stored look and keeps following what can change it from outside while the app is open: the system's
- * colour scheme (it only matters with «system») and another tab. Once is enough; later calls do nothing.
+ * colour scheme (it only matters with «system»), the system's reduced-motion setting and another tab. Once is enough;
+ * later calls do nothing.
  */
 export function watchLook(): void {
   if (watched !== undefined || typeof window === 'undefined') return
-  watched = systemTheme()
+  watched = [systemAsks(LIGHT_QUERY), systemAsks(REDUCED_MOTION_QUERY)]
   applyLook()
-  watched?.addEventListener?.('change', refresh)
+  for (const query of watched) query?.addEventListener?.('change', refresh)
   window.addEventListener('storage', onStorage)
 }
 
@@ -112,21 +144,55 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener)
 }
 
-/** A primitive, so React can compare it: «choice|resolved». */
+/** A primitive, so React can compare it: the choices and what they resolve to now. */
 function snapshot(): string {
-  const { theme } = readLook()
-  return `${theme}|${resolveTheme(theme)}`
+  const { theme, motion, views } = readLook()
+  const reduced = reducedBySystem() ? 'reduced' : ''
+  return [theme, resolveTheme(theme), motion, resolveMotion(motion), reduced, views].join('|')
 }
 
 function setTheme(theme: ThemeChoice): void {
   writeLook({ theme })
 }
 
-/** The stored choice, the theme it resolves to now, and the setter. */
-export function useLook(): { theme: ThemeChoice; resolved: ResolvedTheme; setTheme: (theme: ThemeChoice) => void } {
-  const [theme, resolved] = useSyncExternalStore(subscribe, snapshot, snapshot).split('|') as [
-    ThemeChoice,
-    ResolvedTheme,
-  ]
-  return { theme, resolved, setTheme }
+function setMotion(motion: MotionLevel): void {
+  writeLook({ motion })
+}
+
+function setViews(views: ViewsPlace): void {
+  writeLook({ views })
+}
+
+export interface LookState {
+  theme: ThemeChoice
+  /** The theme on the page now («system» resolved). */
+  resolved: ResolvedTheme
+  setTheme: (theme: ThemeChoice) => void
+  motion: MotionLevel
+  /** The level on the page now: «none» while the system asks to reduce motion. */
+  resolvedMotion: MotionLevel
+  reducedBySystem: boolean
+  setMotion: (motion: MotionLevel) => void
+  views: ViewsPlace
+  setViews: (views: ViewsPlace) => void
+}
+
+/** The stored choices, what they resolve to now, and the setters. */
+export function useLook(): LookState {
+  const [theme, resolved, motion, resolvedMotion, reduced, views] = useSyncExternalStore(
+    subscribe,
+    snapshot,
+    snapshot,
+  ).split('|') as [ThemeChoice, ResolvedTheme, MotionLevel, MotionLevel, string, ViewsPlace]
+  return {
+    theme,
+    resolved,
+    setTheme,
+    motion,
+    resolvedMotion,
+    reducedBySystem: reduced !== '',
+    setMotion,
+    views,
+    setViews,
+  }
 }

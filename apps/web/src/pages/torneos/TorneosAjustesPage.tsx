@@ -58,7 +58,7 @@ function SetRow({ set, onSave }: { set: SetReleaseInfo; onSave: (set: SetRelease
 /** Fase 40 (H-006): a row the era table lacks, proposed from the tournaments that play the set; one tap adds it. */
 function ProposedSet({ proposal, onSave }: { proposal: SetProposal; onSave: (set: SetReleaseInfo) => void }) {
   return (
-    <li className="flex flex-col gap-2 rounded-lg border border-dashed p-3 text-sm sm:flex-row sm:items-center">
+    <li className="flex flex-col gap-2 rounded-lg border border-dashed p-3 text-sm">
       <div className="min-w-0 flex-1">
         <div className="font-medium">
           <span className="font-mono">{proposal.code}</span> · {proposal.nameEs ?? proposal.nameEn}
@@ -67,7 +67,7 @@ function ProposedSet({ proposal, onSave }: { proposal: SetProposal; onSave: (set
           Desde el {formatDayEs(proposal.releaseDate)} ({proposal.firstTournament.name}); lo juegan{' '}
           {formatCount(proposal.tournaments)} {proposal.tournaments === 1 ? 'torneo' : 'torneos'}.{' '}
           {proposal.opensEra ? 'Abre era.' : 'Deluxe: no abre era.'}
-          {proposal.inCatalog ? '' : ' El catálogo todavía no lo tiene: actualizalo en Más → Catálogo.'}
+          {proposal.inCatalog ? '' : ' El catálogo todavía no lo tiene: actualizalo en Menú → Catálogo.'}
         </p>
       </div>
       <Button

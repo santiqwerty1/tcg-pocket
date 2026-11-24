@@ -12,6 +12,7 @@ import { IssueList } from '@/components/IssueList'
 import { ErrorState, LoadingRows, Spinner } from '@/components/ListState'
 import { CardCode, Field, Section } from '@/components/Section'
 import { Stepper } from '@/components/Stepper'
+import { StickyActions } from '@/components/StickyActions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -296,7 +297,7 @@ function DeckEditorForm({
         </Field>
       </Section>
 
-      <div className="sticky bottom-20 z-20 flex gap-2 rounded-lg border bg-background/95 p-2 backdrop-blur">
+      <StickyActions>
         <Button className="flex-1" size="lg" onClick={save} disabled={saving}>
           {saving ? <Spinner /> : <SaveIcon data-icon="inline-start" />}
           Guardar
@@ -305,7 +306,7 @@ function DeckEditorForm({
           <XIcon data-icon="inline-start" />
           Cancelar
         </Button>
-      </div>
+      </StickyActions>
     </div>
   )
 }

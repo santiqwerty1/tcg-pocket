@@ -4,7 +4,8 @@
 
 /*
  * Theme: the shadcn names (CLI preset radix-nova) fed from the palette of mock-up D «Fusión»
- * (docs/prototipos/renovacion-ui/d/estilos.css). Phase 0a: tokens, theme and type; the frame does not move.
+ * (docs/prototipos/renovacion-ui/d/estilos.css). Phase 0a: tokens, theme and type. Phase 0b: the frame (one column
+ * of 480 px, D's header, the tab bar and the fixed row above it), with today's screens inside.
  * - The theme is an attribute: `data-theme="dark" | "light"` on <html>, always resolved, dark by default.
  *   public/look.js sets it before the first paint and src/lib/look.ts keeps it (the choice is per device).
  * - Two self-hosted faces: Inter for running text, Barlow Semi Condensed for titles, controls, labels and figures.
@@ -101,6 +102,8 @@
   --color-scrim: var(--scrim);
   --color-track: var(--track);
   --color-band: var(--band);
+  --color-row: var(--row);
+  --color-row-selected: var(--row-selected);
   --color-holo-glow: var(--holo-glow);
   --color-gem-ring: var(--gem-ring);
   --color-energy-grass: var(--energy-grass);
@@ -177,6 +180,11 @@
   --scrim: rgba(2, 5, 9, 0.66);
   --shadow-card: 0 12px 26px -18px rgba(0, 0, 0, 0.9), 0 2px 6px -2px rgba(0, 0, 0, 0.5);
   --gem-ring: rgba(255, 255, 255, 0.38);
+  /* The fixed row and the top tabs: their fill, the fill of the chosen view (D: 16 % of prim over s3, written out)
+     and the shadow that lifts the row off the page. */
+  --row: #243041;
+  --row-selected: #444f5e;
+  --shadow-row: inset 0 1px 0 var(--edge), 0 14px 30px -10px rgba(0, 0, 0, 0.65);
   /* Energies (e-*): the colour of the type and the ink that goes on it; Darkness has a mark and a fill. */
   --energy-grass: #9ad13b;
   --energy-grass-foreground: #16240a;
@@ -216,12 +224,17 @@
 
   /* Buttons and fields 12 px, cards about 16 px. */
   --radius: 0.75rem;
-  /* Motion, D's «expresivo» level (the other levels and their setting come with the frame). */
+  /* Motion, D's «expresivo» level (`data-motion="full"`); the other two levels override it below. */
   --dur-1: 140ms;
   --dur-2: 280ms;
   --dur-3: 520ms;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --spring: cubic-bezier(0.2, 1.45, 0.35, 1);
+  /* The frame: the column, the header, the tab bar and the fixed row above it. Nothing else hard-codes these sizes. */
+  --frame: 30rem;
+  --header-h: 52px;
+  --bar-h: 58px;
+  --row-h: 60px;
 }
 
 /* The light theme (d/estilos.css, `data-tema="claro"`). */
@@ -256,6 +269,9 @@
   --scrim: rgba(20, 22, 28, 0.5);
   --shadow-card: 0 10px 22px -16px rgba(40, 34, 20, 0.5), 0 1px 3px rgba(40, 34, 20, 0.12);
   --gem-ring: rgba(255, 255, 255, 0.55);
+  --row: #ffffff;
+  --row-selected: #ece8e0;
+  --shadow-row: 0 10px 26px -10px rgba(40, 34, 20, 0.35);
   --energy-grass: #4d8f12;
   --energy-grass-foreground: #ffffff;
   --energy-fire: #d9480f;
@@ -281,6 +297,24 @@
   --energy-none-foreground: #ffffff;
 }
 
+/*
+ * How much the app moves: `data-motion` on <html> (public/look.js, src/lib/look.ts), «none» whenever the system asks
+ * to reduce motion. «Sutil» shortens everything timed with the tokens and takes the bounce out; «Ninguno» stops it.
+ */
+:root[data-motion="subtle"] {
+  --dur-1: 90ms;
+  --dur-2: 150ms;
+  --dur-3: 150ms;
+  --spring: ease-out;
+}
+/* With the unit: a bare 0 inside the `animation` shorthand is read as an iteration count. */
+:root[data-motion="none"] {
+  --dur-1: 0ms;
+  --dur-2: 0ms;
+  --dur-3: 0ms;
+  --spring: linear;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring;
@@ -289,13 +323,48 @@
     @apply font-sans;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    /* What surrounds the column on a wide window; the room kept for the scrollbar is painted with it too. */
+    background: var(--background-outer);
+    /* Always the same room for the scrollbar: a dialog that locks the scroll does not move the column. */
+    scrollbar-gutter: stable;
+    /* What takes the focus or is scrolled into view never stops under the header (the shell writes its real height
+       in --header-now) or under the tab bar and the fixed row. */
+    scroll-padding-top: calc(var(--header-now, var(--header-h)) + 12px);
+    scroll-padding-bottom: calc(var(--bar-h) + var(--row-h) + 24px + env(safe-area-inset-bottom));
+  }
+  /* Where only the tab bar is over the end of the page (no fixed row, no bar of the page's own), what is right above
+     it is in plain sight. Kept free as well, a tap on the text of a label there would re-centre the screen while its
+     control takes the focus. */
+  html:not(:has([data-slot="bottom-zone"][data-row], main :is([data-slot="sticky-actions"], [data-slot="page-bar"]))) {
+    scroll-padding-bottom: calc(var(--bar-h) + 12px + env(safe-area-inset-bottom));
+  }
+  /* The header and a page's own bar live inside the bands kept free, and no scroll can take them out: while the focus
+     is in one of them its band is not kept, or every Tab stop there would move the page half a screen. */
+  html:has(#root > header:focus-within) {
+    scroll-padding-top: 0;
+  }
+  html:has(main :is([data-slot="sticky-actions"], [data-slot="page-bar"]):focus-within) {
+    scroll-padding-bottom: 0;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
     margin: 0;
-    min-height: 100dvh;
     font-size: 16px;
     line-height: 1.45;
+  }
+  /* The app is one column, a phone at every width. #root is the column, so what renders outside the shell (the first
+     load, an error of the shell itself) is inside it too. No `overflow` here or on <main>: it would unstick the header
+     and the bars of the pages, and the window has to stay the scroller. */
+  #root {
+    max-width: var(--frame);
+    min-height: 100dvh;
+    margin-inline: auto;
+    background: var(--background);
+  }
+  @media (min-width: 600px) {
+    #root {
+      box-shadow: 0 0 0 1px var(--border);
+    }
   }
   /* The display face: titles, what is pressed, what names a field or a column. Running text stays in Inter. */
   h1,
@@ -326,10 +395,79 @@
   [role="button"]:not(:disabled) {
     cursor: pointer;
   }
+  /* A screen fades in once. In this layer, so any utility of the page still wins (an unlayered rule would beat them
+     all). Opacity only: a transform would re-anchor the fixed bars of a game and of a puzzle while it runs. The
+     loading rows are left out: React swaps them for the page when the data arrives, and the fade would start again. */
+  main > :not([aria-busy="true"]) {
+    animation: page-in var(--dur-2) linear backwards;
+  }
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+  }
 }
 
 @utility pb-safe {
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* The room for the scrollbar is already kept (scrollbar-gutter on <html>): Radix's scroll lock must not add its own
+   on top, or every dialog and sheet would push the column aside while the fixed bars stay put. */
+html body[data-scroll-locked] {
+  /* biome-ignore lint/complexity/noImportantStyles: react-remove-scroll-bar writes this margin with !important. */
+  margin-right: 0 !important;
+}
+
+/* Above the fixed row the page fades into the background, so a line of text is never cut by the row's edge. */
+[data-slot="bottom-zone"][data-row] {
+  padding-top: 30px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--background) 92%, transparent) 40px,
+    var(--background) 78px
+  );
+}
+
+/* With a dialog or a sheet open the fixed row is not drawn (it never covers a field) and the zone loses its fade; the
+   tab bar stays, under the scrim. A select or a menu does not hide it. */
+:root:has(:is([data-slot="dialog-content"], [data-slot="sheet-content"])[data-state="open"]) [data-slot="fixed-row"] {
+  display: none;
+}
+:root:has(:is([data-slot="dialog-content"], [data-slot="sheet-content"])[data-state="open"]) [data-slot="bottom-zone"] {
+  padding-top: 0;
+  background: none;
+}
+
+/* The tab that becomes lit pops, only with the «Expresivo» level. */
+@keyframes tab-pop {
+  0% {
+    transform: scale(0.6);
+  }
+  60% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+:root[data-motion="full"] [data-slot="tab-bar"] [aria-current="page"] [data-slot="tab-pill"] {
+  animation: tab-pop var(--dur-3) var(--spring);
+}
+
+/* «Ninguno»: nothing animates, whoever wrote it (a utility, the kit, a library's own sheet). A spinner is spared: it
+   is the only sign that something is still working, not decoration. */
+:root[data-motion="none"] *:not(.animate-spin),
+:root[data-motion="none"] *:not(.animate-spin)::before,
+:root[data-motion="none"] *:not(.animate-spin)::after {
+  /* biome-ignore lint/complexity/noImportantStyles: it has to beat every utility and the inline styles of a library. */
+  animation: none !important;
+  /* biome-ignore lint/complexity/noImportantStyles: it has to beat every utility and the inline styles of a library. */
+  transition: none !important;
+  /* biome-ignore lint/complexity/noImportantStyles: a scroll asked by a library must not glide either. */
+  scroll-behavior: auto !important;
 }
 
 /* Figures: tabular digits, in the display face. */
@@ -420,4 +558,16 @@
   .board-fresh {
     animation: none;
   }
+}
+/* The same with «Ninguno» chosen in the Menú: what would float stays, the banner never shows, nothing pulses. */
+:root[data-motion="none"] .board-float {
+  animation: none;
+  opacity: 1;
+}
+:root[data-motion="none"] .board-banner {
+  animation: none;
+  opacity: 0;
+}
+:root[data-motion="none"] :is(.board-target, .board-glow, .board-fresh) {
+  animation: none;
 }

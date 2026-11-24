@@ -44,7 +44,7 @@ function ExclusiveList({ items, boost }: { items: ExclusiveVersion[]; boost: num
         </p>
       ) : null}
       {forCollection.length > 0 ? (
-        <ul className="mt-1 grid grid-cols-1 gap-x-3 sm:grid-cols-2">
+        <ul className="mt-1 grid grid-cols-1 gap-x-3">
           {forCollection.map((item) => (
             <li key={item.cardId} className="truncate">
               <span className="font-mono text-muted-foreground">{item.cardId}</span> {versionLabel(item)}

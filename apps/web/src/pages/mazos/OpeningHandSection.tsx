@@ -32,7 +32,7 @@ export function OpeningHandSection({ deck }: { deck: DeckDetail }) {
     <Section title="Mano inicial">
       <div className="flex flex-wrap gap-2">
         <Select value={first} onValueChange={setFirst}>
-          <SelectTrigger aria-label="Carta" className="w-full sm:w-60">
+          <SelectTrigger aria-label="Carta" className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -45,7 +45,7 @@ export function OpeningHandSection({ deck }: { deck: DeckDetail }) {
           </SelectContent>
         </Select>
         <Select value={second} onValueChange={setSecond}>
-          <SelectTrigger aria-label="Y además" className="w-full sm:w-60">
+          <SelectTrigger aria-label="Y además" className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

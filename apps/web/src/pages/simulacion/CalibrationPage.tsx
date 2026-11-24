@@ -124,7 +124,7 @@ export function CalibrationPage() {
           por cruce, al lado de lo que hicieron esos arquetipos en los torneos de la era. Sirve para ver cuánto se
           parece cada bot a la gente antes de confiar en sus números.
         </p>
-        <div className="grid grid-cols-2 gap-3 sm:max-w-xl sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3">
           <Field label="Bot (los dos lados)">
             <Select value={bot} onValueChange={setBot}>
               <SelectTrigger className="w-full" aria-label="Bot">

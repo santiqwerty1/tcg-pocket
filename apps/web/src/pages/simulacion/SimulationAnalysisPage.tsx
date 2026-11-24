@@ -98,7 +98,7 @@ export function SimulationAnalysisPage() {
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-bold">Análisis de simulaciones</h1>
+        <h2 className="text-2xl font-bold">Análisis de simulaciones</h2>
         <p className="text-sm text-muted-foreground">
           Resultados de bots. Cada porcentaje con n e IC&nbsp;95&nbsp;%; orientativo con menos de 30 partidas. El
           resultado depende del bot y del motor.
@@ -112,7 +112,7 @@ export function SimulationAnalysisPage() {
       {view ? (
         <>
           <Section title="Filtros">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3">
               {(['bot', 'era', 'expansion'] as const).map((key) => (
                 <label key={key} className="flex min-w-0 flex-col gap-1 text-sm">
                   {key === 'bot' ? 'Bot' : key === 'era' ? 'Era' : 'Expansión'}
@@ -153,7 +153,7 @@ export function SimulationAnalysisPage() {
                 ? ` Aparte, ${formatNumber(view.summary.cachedGames)} partidas salieron de la caché: son las mismas que un worker ya jugó con la misma semilla, y no se cuentan otra vez.`
                 : ''}
             </p>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4">
               <ul className="text-sm">
                 {view.summary.byBot.map((row) => (
                   <li key={row.bot} className="border-b py-2">
@@ -208,7 +208,7 @@ export function SimulationAnalysisPage() {
             )}
           </Section>
           <Section title="Acuerdo entre bots">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3">
               {(['left', 'right'] as const).map((key) => (
                 <label key={key} className="flex min-w-0 flex-col gap-1 text-sm">
                   {key === 'left' ? 'Bot de referencia' : 'Bot a comparar'}
@@ -402,7 +402,8 @@ export function SimulationAnalysisPage() {
             </p>
             <ul className="list-inside list-disc text-sm">
               {view.findings.map((finding) => (
-                <li key={`${finding.kind}-${finding.text}`} className="py-2">
+                // A finding can name two engine revisions in a row, 82 characters with no place to break.
+                <li key={`${finding.kind}-${finding.text}`} className="py-2 wrap-anywhere">
                   {finding.text}
                 </li>
               ))}

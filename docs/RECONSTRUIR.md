@@ -28,7 +28,7 @@ aws s3 cp s3://<bucket>/backups/<archivo> . --endpoint-url https://fly.storage.t
 - Si se perdieron, se generan unas nuevas desde la consola de Tigris.
 - Nunca se pegan en el chat.
 
-**De la app**, solo si sigue andando y la base no se perdió: Más → Copia de seguridad → descargar. Si se perdió Supabase, la app no tiene copias para dar: la del bucket es la única.
+**De la app**, solo si sigue andando y la base no se perdió: Menú → Copia de seguridad → descargar. Si se perdió Supabase, la app no tiene copias para dar: la del bucket es la única.
 
 ## 2. Una base nueva
 
@@ -62,16 +62,16 @@ aws s3 cp s3://<bucket>/backups/<archivo> . --endpoint-url https://fly.storage.t
 ## 4. Restaurar
 
 1. Entrar a la app con el usuario nuevo.
-2. En Más → Copia de seguridad → Restaurar, subir el `.json.gz`:
+2. En Menú → Copia de seguridad → Restaurar, subir el `.json.gz`:
    - primero sale el **ensayo**: qué cambia, tabla por tabla;
    - después, **Reemplazar**.
 3. Si la copia es de otro commit del catálogo, el aviso `needs_review` pide revisar la colección y los mazos.
-4. Después de restaurar, correr la **Prueba de restauración** (Más → Copia de seguridad). Hace una copia nueva de la base y la restaura en una transacción que se deshace: confirma que la base quedó sana y legible.
+4. Después de restaurar, correr la **Prueba de restauración** (Menú → Copia de seguridad). Hace una copia nueva de la base y la restaura en una transacción que se deshace: confirma que la base quedó sana y legible.
    - Para confirmar que es la misma que se subió, comparar el sha256 del archivo bajado con el de la última comprobación mensual del bucket (`/api/ops/status`, `backup.offsite.check`) o con `sha256sum`.
 
 ## 5. Lo que queda afuera
 
-- **Tokens:** Más → Tokens de API.
+- **Tokens:** Menú → Tokens de API.
   - Uno `mcp` nuevo para el conector de Claude; cambiarlo en «Encabezados de solicitud» del conector.
   - Uno `worker` por PC; correr `tcg-worker.exe` de nuevo, o editar `%LOCALAPPDATA%\tcg-worker\config.json`.
 - **Torneos:** el primer sync de Limitless baja 60 días solo. Si hace falta más: `POST /api/tournaments/sync` con `{ "backfillDays": 120 }`.
@@ -79,7 +79,7 @@ aws s3 cp s3://<bucket>/backups/<archivo> . --endpoint-url https://fly.storage.t
 - **UptimeRobot:** si cambió la URL, actualizar el monitor (`docs/OPERACION.md`).
 - **Comprobar:**
   - `GET /api/ops/status`, o `system_status` desde Claude: versión, base, copia, catálogo y workers;
-  - y que Más → Avisos esté vacío.
+  - y que Menú → Avisos esté vacío.
 
 ## Retención
 

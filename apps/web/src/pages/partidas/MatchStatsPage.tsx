@@ -51,7 +51,7 @@ export function MatchStatsPage() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <Select value={mode} onValueChange={(value) => setMode(value as MatchMode | typeof ALL_MODES)}>
-          <SelectTrigger aria-label="Modalidad" className="w-full sm:w-56">
+          <SelectTrigger aria-label="Modalidad" className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

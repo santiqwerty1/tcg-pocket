@@ -435,6 +435,6 @@ describe('Tracker al día', () => {
     )
     renderAt('/coleccion/tracker')
     expect(await screen.findByText('Pegá el link de exportación…')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Ir a Más → Ajustes de la app' })).toHaveAttribute('href', '/mas/ajustes')
+    expect(screen.getByRole('link', { name: 'Ir a Menú → Ajustes de la app' })).toHaveAttribute('href', '/mas/ajustes')
   })
 })

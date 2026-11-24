@@ -1,27 +1,17 @@
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useSetUiSettings, useUiSettings } from '@/api/settings'
 import { Section } from '@/components/Section'
-import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { type ThemeChoice, useLook } from '@/lib/look'
-import { ChoiceGroup } from '@/pages/partidas/MatchFields'
 import { DotggSettingsSection } from './DotggSettingsSection'
 import { NotificationsSection } from './NotificationsSection'
 import { TrackerSettingsSection } from './TrackerSettingsSection'
 
-const PRESSED = 'aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground'
-const THEMES: { value: ThemeChoice; label: string }[] = [
-  { value: 'dark', label: 'Oscuro' },
-  { value: 'light', label: 'Claro' },
-  { value: 'system', label: 'Sistema' },
-]
-
 export function AppSettingsPage() {
   const ui = useUiSettings()
   const setUi = useSetUiSettings()
-  const look = useLook()
 
   async function toggleBoardImages(checked: boolean) {
     try {
@@ -41,47 +31,12 @@ export function AppSettingsPage() {
     }
   }
 
-  async function toggleThumbnails(checked: boolean) {
-    try {
-      await setUi.update({ thumbnails: checked })
-      toast.success(checked ? 'Miniaturas activadas' : 'Miniaturas desactivadas')
-    } catch (error) {
-      toast.error(errorMessage(error))
-    }
-  }
-
   return (
     <div className="flex flex-col gap-6">
       <NotificationsSection />
       <DotggSettingsSection />
       <TrackerSettingsSection />
       <Section title="Interfaz">
-        <div className="flex flex-col gap-1.5 rounded-lg border px-3 py-2.5">
-          <ChoiceGroup label="Tema" className="grid grid-cols-3 gap-2">
-            {THEMES.map(({ value, label }) => (
-              <Button
-                key={value}
-                type="button"
-                variant="outline"
-                aria-pressed={look.theme === value}
-                className={PRESSED}
-                onClick={() => look.setTheme(value)}
-              >
-                {label}
-              </Button>
-            ))}
-          </ChoiceGroup>
-          <p className="text-xs text-muted-foreground">Se guarda en este dispositivo.</p>
-        </div>
-        <Label className="flex min-h-14 items-center justify-between gap-3 rounded-lg border px-3">
-          <span>
-            <span className="block font-medium">Miniaturas de cartas</span>
-            <span className="block font-sans text-xs text-muted-foreground">
-              Imágenes chicas del tracker en las listas. Se cargan después del texto y nunca lo frenan.
-            </span>
-          </span>
-          <Switch checked={ui.thumbnails} onCheckedChange={toggleThumbnails} disabled={setUi.isPending} />
-        </Label>
         <Label className="flex min-h-14 items-center justify-between gap-3 rounded-lg border px-3">
           <span>
             <span className="block font-medium">Imágenes en la mesa</span>
@@ -103,8 +58,15 @@ export function AppSettingsPage() {
           <Switch checked={ui.askWentFirst} onCheckedChange={toggleAskWentFirst} disabled={setUi.isPending} />
         </Label>
         <p className="text-xs text-muted-foreground">
-          Los tres interruptores de arriba se guardan en el servidor (clave <code>ui</code>); el tema, en este
-          dispositivo.
+          Los dos interruptores de arriba se guardan en el servidor (clave <code>ui</code>).
+        </p>
+        {/* The theme and the thumbnails were set here: say where they went. */}
+        <p className="text-sm">
+          El tema, el movimiento y las miniaturas están en{' '}
+          <Link to="/mas" className="underline">
+            Menú → Aspecto
+          </Link>
+          .
         </p>
       </Section>
     </div>

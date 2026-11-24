@@ -7,6 +7,7 @@ import { useApplyDotgg } from '@/api/dotgg'
 import { useApplyTracker } from '@/api/trackerSync'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ErrorState, LoadingRows, Spinner } from '@/components/ListState'
+import { StickyActions } from '@/components/StickyActions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatDateTime, formatNumber } from '@/lib/format'
@@ -97,7 +98,7 @@ export function ImportPreviewPage() {
       />
 
       {data.status === 'pending' ? (
-        <div className="sticky bottom-20 z-20 flex gap-2 rounded-lg border bg-background/95 p-2 backdrop-blur">
+        <StickyActions>
           <Button
             className="flex-1"
             size="lg"
@@ -110,7 +111,7 @@ export function ImportPreviewPage() {
           <Button variant="outline" size="lg" onClick={() => setConfirmDiscard(true)} disabled={discard.isPending}>
             Descartar
           </Button>
-        </div>
+        </StickyActions>
       ) : null}
 
       <ConfirmDialog

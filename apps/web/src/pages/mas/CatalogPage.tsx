@@ -273,7 +273,7 @@ export function CatalogPage() {
         </p>
         {latest.data?.error ? <p className="text-sm text-destructive">{latest.data.error}</p> : null}
         {latest.data?.latest ? (
-          <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center">
+          <div className="flex flex-col gap-2 text-sm">
             <p className="flex-1">
               Último del tracker: <code className="font-mono">{shortSha(latest.data.latest.sha)}</code>
               {latest.data.latest.date ? ` (${formatDateTime(latest.data.latest.date)})` : ''}
@@ -297,7 +297,7 @@ export function CatalogPage() {
       </Section>
 
       {data.counts ? (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-2">
           <Stat label="Cartas" value={formatNumber(data.counts.cards)} />
           <Stat label="Cartas funcionales" value={formatNumber(data.counts.groups)} />
           <Stat label="Unidades de stock" value={formatNumber(data.counts.stockUnits)} />

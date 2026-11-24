@@ -9,7 +9,7 @@ import { ImportPreviewPage } from '@/pages/coleccion/ImportPreviewPage'
 import { MissionsPage } from '@/pages/coleccion/MissionsPage'
 import { TrackerGapPage } from '@/pages/coleccion/TrackerGapPage'
 import { TradesPage } from '@/pages/coleccion/TradesPage'
-import { MasPage } from '@/pages/mas/MasPage'
+import { MenuPage } from '@/pages/mas/MenuPage'
 import { DeckDetailPage } from '@/pages/mazos/DeckDetailPage'
 import { DeckEditorPage } from '@/pages/mazos/DeckEditorPage'
 import { DeckImportPage } from '@/pages/mazos/DeckImportPage'
@@ -34,7 +34,7 @@ function handle(title: string, back?: string): RouteHandle {
 
 /**
  * A screen loaded when it is first opened (Fase 41): the big ones that are not used every day (torneos, simulación,
- * laboratorio, jugar, eventos and the settings under Más) leave the main bundle. The service worker precaches every
+ * laboratorio, jugar, eventos and the settings of the Menú) leave the main bundle. The service worker precaches every
  * chunk, so they still open without signal; a chunk that vanished with a deploy is handled by `RouteError`.
  */
 function page<K extends string>(load: () => Promise<Record<K, ComponentType>>, name: K): RouteObject['lazy'] {
@@ -51,7 +51,7 @@ export const routes: RouteObject[] = [
     errorElement: <RouteError />,
     children: [
       {
-        // Errors of a screen render inside the shell, so the header and the bottom bar stay.
+        // Errors of a screen render inside the shell, so the header and the tab bar stay.
         errorElement: <RouteError />,
         children: [
           // Home: logging a match is the most frequent action (PLAN §7 Fase 2: ≤ 4 taps from the home screen).
@@ -94,7 +94,7 @@ export const routes: RouteObject[] = [
           {
             path: 'torneos',
             lazy: page(() => import('@/pages/torneos/TorneosPage'), 'TorneosPage'),
-            handle: handle('Torneos', '/mas'),
+            handle: handle('Torneos'),
           },
           {
             path: 'torneos/ajustes',
@@ -124,7 +124,7 @@ export const routes: RouteObject[] = [
           {
             path: 'simulacion',
             lazy: page(() => import('@/pages/simulacion/SimulacionPage'), 'SimulacionPage'),
-            handle: handle('Simulación', '/mas'),
+            handle: handle('Simulación'),
           },
           {
             path: 'simulacion/nueva',
@@ -159,12 +159,12 @@ export const routes: RouteObject[] = [
           {
             path: 'laboratorio',
             lazy: page(() => import('@/pages/laboratorio/LaboratorioPage'), 'LaboratorioPage'),
-            handle: handle('Laboratorio de mazos', '/mas'),
+            handle: handle('Laboratorio de mazos'),
           },
           {
             path: 'jugar',
             lazy: page(() => import('@/pages/jugar/JugarPage'), 'JugarPage'),
-            handle: handle('Jugar contra un bot', '/mas'),
+            handle: handle('Jugar contra un bot'),
           },
           {
             path: 'jugar/situaciones',
@@ -238,7 +238,8 @@ export const routes: RouteObject[] = [
           { path: 'mazos/:deckId', element: <DeckDetailPage />, handle: handle('Mazo', '/mazos') },
           { path: 'mazos/:deckId/editar', element: <DeckEditorPage />, handle: handle('Editar mazo', '/mazos') },
 
-          { path: 'mas', element: <MasPage />, handle: handle('Más') },
+          // The Menú belongs to no tab: its «Volver» leads to the app's start when nothing is behind it.
+          { path: 'mas', element: <MenuPage />, handle: handle('Menú', '/partidas') },
           {
             path: 'mas/catalogo',
             lazy: page(() => import('@/pages/mas/CatalogPage'), 'CatalogPage'),
@@ -282,7 +283,7 @@ export const routes: RouteObject[] = [
           {
             path: 'eventos',
             lazy: page(() => import('@/pages/eventos/EventsPage'), 'EventsPage'),
-            handle: handle('Eventos', '/mas'),
+            handle: handle('Eventos'),
           },
           {
             path: 'eventos/:id',

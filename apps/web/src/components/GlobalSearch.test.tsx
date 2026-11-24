@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -81,5 +81,33 @@ describe('buscador único (Fase 27)', () => {
     expect(screen.queryByRole('heading', { name: 'Mazos' })).not.toBeInTheDocument()
     await user.keyboard('{Enter}')
     expect(router.state.location.pathname).toBe('/cartas/A1-78')
+    // The focus goes to the screen that opened, so the next Tab walks it. The magnifier is the last stop of the
+    // document: left there, the next Tab would leave the page.
+    await waitFor(() => expect(screen.queryByRole('searchbox')).toBeNull())
+    expect(screen.getByRole('main')).toHaveFocus()
+  })
+
+  it('a result opened with a tap leaves the focus on the new screen too, and Escape still returns it to the magnifier', async () => {
+    const user = userEvent.setup()
+    const router = createMemoryRouter(routes, { initialEntries: ['/mazos'] })
+    render(
+      <Providers queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouterProvider router={router} />
+      </Providers>,
+    )
+    await user.keyboard('/')
+    await user.type(await screen.findByRole('searchbox', { name: 'Buscar en toda la app' }), 'gyarados')
+    await user.click(await screen.findByRole('button', { name: 'Gyarados ex' }))
+    // A screen that is loaded when it is opened: the address follows in a moment.
+    await waitFor(() => expect(router.state.location.pathname).toBe('/torneos/arquetipos/gyarados-ex'))
+    await waitFor(() => expect(screen.queryByRole('searchbox')).toBeNull())
+    expect(screen.getByRole('main')).toHaveFocus()
+
+    // Opened again and closed without choosing: back to the magnifier, as before.
+    await user.keyboard('/')
+    expect(await screen.findByRole('searchbox', { name: 'Buscar en toda la app' })).toHaveFocus()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('searchbox')).toBeNull())
+    expect(screen.getByRole('button', { name: 'Buscar' })).toHaveFocus()
   })
 })

@@ -82,7 +82,7 @@ export function CollectionPage() {
         >
           <span className="font-medium">El link de ptcgpocket.gg guardado no se puede leer</span>
           <span className="text-xs text-muted-foreground">
-            Por ejemplo, porque cambió la clave del servidor. Pegalo de nuevo (o quitalo) en Más → Ajustes de la app;
+            Por ejemplo, porque cambió la clave del servidor. Pegalo de nuevo (o quitalo) en Menú → Ajustes de la app;
             mientras tanto, el tracker queda en pausa.
           </span>
         </Link>
@@ -159,14 +159,14 @@ export function CollectionPage() {
 
       {summary.isError ? <ErrorState error={summary.error} onRetry={() => summary.refetch()} /> : null}
       {summary.isPending ? (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-2">
           {SUMMARY_SKELETONS.map((id) => (
             <Skeleton key={id} className="h-20" />
           ))}
         </div>
       ) : null}
       {summary.data ? (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-2">
           <Stat label="Copias jugables" value={formatNumber(summary.data.copies)} />
           <Stat label="Unidades con ≥1" value={formatNumber(summary.data.stockUnitsCollected)} />
           <Stat

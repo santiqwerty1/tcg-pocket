@@ -5,13 +5,15 @@ import { useLook } from '@/lib/look'
 // `!`: sonner's selectors (`[data-sonner-toast][data-styled=true] [data-button]`) outweigh a plain class.
 const TOAST_BUTTON = 'text-xs! focus-visible:ring-2! focus-visible:ring-ring!'
 
-/** Toasts follow the app's theme (Más → Ajustes de la app), and take their colours and their font from the tokens. */
+/** Toasts follow the app's theme (Menú → Aspecto), and take their colours and their font from the tokens. */
 const Toaster = ({ ...props }: ToasterProps) => {
   const { resolved } = useLook()
   return (
     <Sonner
       theme={resolved}
       position="top-center"
+      // The name of the landmark the toasts live in; sonner adds its shortcut after it.
+      containerAriaLabel="Notificaciones"
       className="toaster group"
       icons={{
         success: <CircleCheckIcon className="size-4" />,

@@ -452,8 +452,8 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
             {deck.perRival.map((row) => {
               const rival = rivals.get(row.rival)
               return (
-                <li key={row.rival} className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
-                  <span className="min-w-0 sm:flex-1 sm:truncate">
+                <li key={row.rival} className="flex flex-col gap-0.5">
+                  <span className="min-w-0">
                     {rival?.archetypeName ?? row.rival}
                     <span className="text-xs text-muted-foreground">
                       {rival?.second ? ' · segunda lista' : ''} · peso {formatRateValue((rival?.weight ?? 0) * 100)}
@@ -764,7 +764,7 @@ export function LabJobPage() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <div className="flex items-baseline gap-2">
-          <h1 className="min-w-0 flex-1 text-lg font-semibold">{job.label}</h1>
+          <h2 className="min-w-0 flex-1 text-lg font-semibold">{job.label}</h2>
           <StatusBadge status={job.status} />
         </div>
         <p className="text-xs text-muted-foreground">

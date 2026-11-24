@@ -63,7 +63,7 @@ export function ConsistencySection({ deck }: { deck: DeckDetail }) {
       ) : null}
       <div className="flex flex-col gap-2">
         <Select value={key} onValueChange={setKey}>
-          <SelectTrigger aria-label="Atacante a mirar" className="w-full sm:w-64">
+          <SelectTrigger aria-label="Atacante a mirar" className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
