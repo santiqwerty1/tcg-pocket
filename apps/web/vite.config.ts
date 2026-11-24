@@ -80,8 +80,8 @@ export default defineConfig(({ mode }) => ({
             globIgnores: ['viewer/**', 'engine/**'],
             navigateFallback: '/index.html',
             // The login page is served by the API and must never be answered with the SPA shell.
-            // T-015: /engine/ too, so the engine's source (Más → Acerca de) opens as a file, not as the app.
-            // /licenses/ as well: the licence texts linked from Más → Acerca de are files of the build.
+            // T-015: /engine/ too, so the engine's source (Menú → Acerca de) opens as a file, not as the app.
+            // /licenses/ as well: the licence texts linked from Menú → Acerca de are files of the build.
             navigateFallbackDenylist: [
               /^\/api/,
               /^\/login/,

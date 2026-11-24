@@ -15,6 +15,7 @@ import { EnergyPicker } from '@/components/EnergyChip'
 import { IssueList } from '@/components/IssueList'
 import { ErrorState, Spinner } from '@/components/ListState'
 import { Field, Section } from '@/components/Section'
+import { StickyActions } from '@/components/StickyActions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -349,7 +350,7 @@ export function DeckImportPage() {
             })}
           </ul>
 
-          <div className="sticky bottom-20 z-20 flex gap-2 rounded-lg border bg-background/95 p-2 backdrop-blur">
+          <StickyActions>
             <Button
               className="flex-1"
               size="lg"
@@ -359,7 +360,7 @@ export function DeckImportPage() {
               {commit.isPending ? <Spinner /> : null}
               {inputs.length === 1 ? 'Crear 1 mazo' : `Crear ${inputs.length} mazos`}
             </Button>
-          </div>
+          </StickyActions>
         </Section>
       ) : null}
     </div>

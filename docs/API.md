@@ -767,7 +767,7 @@ Tools de escritura (Fase 7), solo para un token con `mcp:write` (con `mcp:read` 
 Todas las de escritura llevan `readOnlyHint: false` e `idempotentHint: false` (registrar dos veces son dos partidas).
 
 **Fase 43.**
-- **Registro de escrituras:** cada llamada a una tool de escritura (también las que fallan) queda en `mcp_audit` con el token, el cliente (el producto del `User-Agent`), la tool, los argumentos, la respuesta y el tiempo; se ve en Más → Tokens de API → «Actividad de Claude» y en `GET /api/mcp-audit`. No va en la copia de seguridad.
+- **Registro de escrituras:** cada llamada a una tool de escritura (también las que fallan) queda en `mcp_audit` con el token, el cliente (el producto del `User-Agent`), la tool, los argumentos, la respuesta y el tiempo; se ve en Menú → Tokens de API → «Actividad de Claude» y en `GET /api/mcp-audit`. No va en la copia de seguridad.
 - **Cliente nuevo:** la primera vez que un cliente usa un token queda en `api_token_clients` y aparece una semana en Avisos (`mcp_new_client`), que llega como notificación.
 - **Tools de lectura nuevas:** `workers_status` (workers y cola con la hora estimada de fin), `alerts_list` (los avisos) y `decks_consistency` (la última prueba de consistencia de un mazo). Las tools de torneos suman `scope.dataAsOf` («último torneo del 8/10; última descarga de Limitless 9/10 12:00»).
 - **Respuestas más cortas:** `decks_get` es compacto por defecto: cada carta una vez, como «2 Riolu (A2-91): faltan 1», sin el texto exportado ni notas fijas. Con `detail: 'full'` vuelve la forma anterior.
@@ -798,7 +798,7 @@ Todas las de escritura llevan `readOnlyHint: false` e `idempotentHint: false` (r
 Cada pedido del puente anota su cliente en el token, como el MCP: otro cliente con el token del puente aparece en Avisos.
 
 Conectar:
-- **Claude Code:** crear un token MCP en Más → Tokens de API y registrar `claude mcp add --transport http tcg https://tcg-pocket.fly.dev/api/mcp --header "Authorization: Bearer tcg_mcp_…"`.
+- **Claude Code:** crear un token MCP en Menú → Tokens de API y registrar `claude mcp add --transport http tcg https://tcg-pocket.fly.dev/api/mcp --header "Authorization: Bearer tcg_mcp_…"`.
 - **Apps de Claude (web, escritorio, celular):** Configuración → Conectores → Añadir conector personalizado, URL `https://tcg-pocket.fly.dev/api/mcp`, «Encabezados de solicitud»: `Authorization` = `Bearer tcg_mcp_…` (DECISIONES A.6).
 
 ## Copia de seguridad

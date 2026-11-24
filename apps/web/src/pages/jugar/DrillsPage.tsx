@@ -102,9 +102,7 @@ export function DrillsPage() {
               <li key={fact}>{fact}</li>
             ))}
           </ul>
-          <div
-            className={cn('grid gap-2', drill.data.choices.length === 2 ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-4')}
-          >
+          <div className="grid grid-cols-2 gap-2">
             {drill.data.choices.map((choice, i) => {
               const right = result && i === result.answer
               const wrong = result && i === result.choice && !result.correct

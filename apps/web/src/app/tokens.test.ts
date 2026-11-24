@@ -9,7 +9,8 @@ import { THEME_COLOR } from '@/lib/look'
 
 // The tests run from apps/web (jsdom's import.meta.url is not a file URL).
 const ROOT = process.cwd()
-const CSS = readFileSync(resolve(ROOT, 'src/index.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+const RAW_CSS = readFileSync(resolve(ROOT, 'src/index.css'), 'utf8')
+const CSS = RAW_CSS.replace(/\/\*[\s\S]*?\*\//g, '')
 const THEMES = ['dark', 'light'] as const
 type Theme = (typeof THEMES)[number]
 const SRC = resolve(ROOT, 'src')
@@ -522,6 +523,441 @@ describe('what only the stylesheet and the class names say', () => {
         ),
     )
     expect(found).toEqual([])
+  })
+})
+
+describe('the frame', () => {
+  it('its sizes are variables, set once', () => {
+    expect(DARK.get('--frame')).toBe('30rem')
+    expect(DARK.get('--header-h')).toBe('52px')
+    expect(DARK.get('--bar-h')).toBe('58px')
+    expect(DARK.get('--row-h')).toBe('60px')
+    // They do not change with the theme, and nothing else in the stylesheet sets them.
+    for (const name of ['--frame', '--header-h', '--bar-h', '--row-h']) {
+      expect(LIGHT.has(name), name).toBe(false)
+      expect(CSS.match(new RegExp(`${name}:`, 'g')), name).toHaveLength(1)
+    }
+    // No component writes the column's or the bars' sizes by hand, not even inside a calc(): every bracketed class
+    // that holds one of them is listed here, and these three are other things that happen to measure 60 px (the
+    // least width of a view tab, a card's thumbnail).
+    const literal = sources()
+      .flatMap(([path, text]) =>
+        [...text.matchAll(/[\w-]*\[[^\]\s]*\b(?:480px|30rem|52px|58px|60px)[^\]\s]*\]/g)].map(
+          (match) => `${path} ${match[0]}`,
+        ),
+      )
+      .sort()
+    expect(literal).toEqual([
+      'app/FixedRow.tsx min-w-[60px]',
+      'pages/cartas/CardPage.tsx w-[60px]',
+      'pages/cartas/GroupPage.tsx w-[60px]',
+    ])
+  })
+
+  it('the row’s fill, the fill of its chosen view and its shadow are literals in both themes', () => {
+    expect(DARK.get('--row')).toBe('#243041')
+    expect(LIGHT.get('--row')).toBe('#ffffff')
+    expect(DARK.get('--row-selected')).toBe('#444f5e')
+    expect(LIGHT.get('--row-selected')).toBe('#ece8e0')
+    expect(DARK.get('--shadow-row')).toBe('inset 0 1px 0 var(--edge), 0 14px 30px -10px rgba(0, 0, 0, 0.65)')
+    expect(LIGHT.get('--shadow-row')).toBe('0 10px 26px -10px rgba(40, 34, 20, 0.35)')
+    expect(THEME_BLOCK.get('--color-row')).toBe('var(--row)')
+    expect(THEME_BLOCK.get('--color-row-selected')).toBe('var(--row-selected)')
+  })
+
+  it('the app is one column on a page of the outer colour, and the window stays the scroller', () => {
+    const root = /#root\s*\{([^}]*)\}/.exec(CSS)?.[1] ?? ''
+    expect(root).toMatch(/max-width:\s*var\(--frame\);/)
+    expect(root).toMatch(/margin-inline:\s*auto;/)
+    expect(root).toMatch(/min-height:\s*100dvh;/)
+    expect(root).toMatch(/background:\s*var\(--background\);/)
+    expect(CSS).toMatch(/@media \(min-width: 600px\)\s*\{\s*#root\s*\{\s*box-shadow:\s*0 0 0 1px var\(--border\);/)
+    const html = /\n {2}html\s*\{([^}]*)\}/.exec(CSS)?.[1] ?? ''
+    expect(html).toMatch(/background:\s*var\(--background-outer\);/)
+    expect(html).toMatch(/scrollbar-gutter:\s*stable;/)
+    expect(html).toMatch(/scroll-padding-top:\s*calc\(var\(--header-now, var\(--header-h\)\) \+ 12px\);/)
+    // With the inset of the phone's own bar, as the tab bar's height and every offset measured from it.
+    expect(html).toMatch(
+      /scroll-padding-bottom:\s*calc\(var\(--bar-h\) \+ var\(--row-h\) \+ 24px \+ env\(safe-area-inset-bottom\)\);/,
+    )
+    // The body paints nothing of its own and has no height of its own: the column does.
+    const body = /\n {2}body\s*\{([^}]*)\}/.exec(CSS)?.[1] ?? ''
+    expect(body).toMatch(/@apply text-foreground;/)
+    expect(body).not.toMatch(/background|min-height/)
+    // No `overflow` on the column (it would unstick the header and the pages' bars).
+    expect(root).not.toMatch(/overflow/)
+    // The browser's bars keep the colour of the column, which is all a phone shows.
+    for (const theme of THEMES) expect(tokenValue('--background', theme)).toBe(THEME_COLOR[theme])
+  })
+
+  it('the bands kept free for what takes the focus follow what is really over the page', () => {
+    const rules = new Map(
+      [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((rule) => [
+        (rule[1] ?? '').replace(/\s+/g, ' ').trim(),
+        (rule[2] ?? '').replace(/\s+/g, ' ').trim(),
+      ]),
+    )
+    const OWN_BAR = 'main :is([data-slot="sticky-actions"], [data-slot="page-bar"])'
+    // Only the tab bar over the end of the page: what is right above it is in sight, and is not kept free (a tap on
+    // a label there would re-centre the screen while its control takes the focus).
+    expect(rules.get(`html:not(:has([data-slot="bottom-zone"][data-row], ${OWN_BAR}))`)).toBe(
+      'scroll-padding-bottom: calc(var(--bar-h) + 12px + env(safe-area-inset-bottom));',
+    )
+    // The header and a page's own bar cannot be scrolled out of their band: with the focus in one, it is not kept.
+    expect(rules.get('html:has(#root > header:focus-within)')).toBe('scroll-padding-top: 0;')
+    expect(rules.get(`html:has(${OWN_BAR}:focus-within)`)).toBe('scroll-padding-bottom: 0;')
+    expect([...rules.values()].filter((body) => /scroll-padding/.test(body))).toHaveLength(4)
+    // What those selectors look for is what the components write.
+    expect(read('app/AppShell.tsx')).toContain("data-row={hasRow ? '' : undefined}")
+    expect(read('components/StickyActions.tsx')).toContain('data-slot="sticky-actions"')
+    const owners = sources()
+      .filter(([, text]) => text.includes('data-slot="page-bar"'))
+      .map(([path]) => path)
+    expect(owners.sort()).toEqual([
+      'components/replay/ReplayViewer.tsx',
+      'pages/jugar/GamePage.tsx',
+      'pages/jugar/PuzzlePage.tsx',
+    ])
+    // Each of them is a bar over the end of the page: stuck or fixed right above the tab bar.
+    for (const path of owners) {
+      expect(read(path), path).toMatch(
+        /data-slot="page-bar"\s+className="(?:sticky|fixed inset-x-0) bottom-\[calc\(var\(--bar-h\)\+/,
+      )
+    }
+  })
+
+  it('one h1 per screen: only the header writes it', () => {
+    expect(
+      sources()
+        .filter(([, text]) => /<h1\b/.test(text))
+        .map(([path]) => path),
+    ).toEqual(['app/AppShell.tsx'])
+    expect(read('app/AppShell.tsx').match(/<h1\b/g)).toHaveLength(1)
+  })
+
+  it('with the scrollbar’s room kept, the scroll lock of a dialog adds none', () => {
+    expect(CSS).toMatch(/html body\[data-scroll-locked\]\s*\{\s*margin-right:\s*0 !important;\s*\}/)
+  })
+
+  it('nothing sets a smooth scroll on the page: the router’s resets would animate', () => {
+    expect(CSS).not.toMatch(/scroll-behavior:\s*smooth/)
+    expect(
+      sources()
+        .filter(([, text]) => /behavior: 'smooth'/.test(text))
+        .map(([path]) => path),
+    ).toEqual([])
+    expect(read('components/replay/ReplayViewer.tsx')).toContain('behavior: scrollBehavior()')
+    expect(read('app/TabBar.tsx')).toContain('behavior: scrollBehavior()')
+  })
+
+  it('the fixed row is not drawn under an open dialog or sheet, and the zone loses its fade', () => {
+    // The names the kit gives to what it opens.
+    expect(read('components/ui/dialog.tsx')).toContain('data-slot="dialog-content"')
+    expect(read('components/ui/sheet.tsx')).toContain('data-slot="sheet-content"')
+    const OPEN = ':root:has(:is([data-slot="dialog-content"], [data-slot="sheet-content"])[data-state="open"])'
+    const rules = new Map(
+      [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((rule) => [
+        (rule[1] ?? '').replace(/\s+/g, ' ').trim(),
+        (rule[2] ?? '').replace(/\s+/g, ' ').trim(),
+      ]),
+    )
+    expect(rules.get(`${OPEN} [data-slot="fixed-row"]`)).toBe('display: none;')
+    expect(rules.get(`${OPEN} [data-slot="bottom-zone"]`)).toBe('padding-top: 0; background: none;')
+    // A select or a menu is not a dialog: nothing else hides the row.
+    expect([...rules.keys()].filter((selector) => selector.includes('[data-slot="fixed-row"]'))).toHaveLength(1)
+    expect(read('app/FixedRow.tsx')).toContain('data-slot="fixed-row"')
+    expect(read('app/AppShell.tsx')).toContain('data-slot="bottom-zone"')
+    // The fade is the zone's only while it holds a row.
+    expect(CSS).toMatch(
+      /\[data-slot="bottom-zone"\]\[data-row\]\s*\{\s*padding-top:\s*30px;\s*background:\s*linear-gradient\(/,
+    )
+  })
+
+  it('the layers: header 20, bottom zone 30, and the page isolated under both', () => {
+    const shell = read('app/AppShell.tsx')
+    expect(shell).toContain('className="sticky top-0 z-20 bg-background"')
+    expect(shell).toContain('className="pointer-events-none fixed inset-x-0 bottom-0 z-30 mx-auto max-w-(--frame)"')
+    expect(shell).toMatch(/'isolate px-4 pt-1\.5 outline-none'/)
+    // The zone is centred with margins, never with a transform (it would re-anchor what is fixed inside it).
+    expect(shell).not.toMatch(/-translate-x-1\/2/)
+    // The kit's dialogs and sheets stay above everything of the frame.
+    for (const file of ['dialog.tsx', 'sheet.tsx'])
+      expect(read(`components/ui/${file}`), file).toContain('fixed inset-0')
+  })
+
+  it('a bottom sheet takes the column, centred', () => {
+    const sheet = read('components/ui/sheet.tsx')
+    for (const utility of ['inset-x-0', 'bottom-0', 'mx-auto', 'max-w-(--frame)']) {
+      expect(sheet, utility).toContain(`data-[side=bottom]:${utility} `)
+    }
+  })
+
+  it('no trace of the old frame: the 768 px column and the offsets of a 56 px bar', () => {
+    const left = (pattern: RegExp) =>
+      sources()
+        .filter(([, text]) => pattern.test(text))
+        .map(([path]) => path)
+    expect(left(/\bmax-w-3xl\b/)).toEqual([])
+    expect(left(/\bsticky bottom-20\b/)).toEqual([])
+    expect(left(/\bbottom-(?:16|20)\b/)).toEqual([])
+    expect(left(/\bpt-18\b/)).toEqual([])
+    // What sticks or is fixed above the tab bar measures from the bar's variable.
+    for (const file of ['components/StickyActions.tsx', 'components/replay/ReplayViewer.tsx']) {
+      expect(read(file), file).toContain('sticky bottom-[calc(var(--bar-h)+8px+env(safe-area-inset-bottom))]')
+    }
+    for (const file of ['pages/jugar/GamePage.tsx', 'pages/jugar/PuzzlePage.tsx']) {
+      expect(read(file), file).toContain(
+        'fixed inset-x-0 bottom-[calc(var(--bar-h)+env(safe-area-inset-bottom))] z-30 mx-auto max-w-(--frame) ',
+      )
+      // The offset carries the safe-area inset: the bar does not add it again.
+      expect(read(file), file).not.toMatch(/bottom-\[calc[^"]*pb-safe/)
+    }
+    // A game's bar holds up to four buttons, which need 373 px in a line: on a 360 px phone the line wraps, or
+    // «Terminar turno» would end past the edge of the screen (the bar takes the column's width, never more).
+    expect(read('pages/jugar/GamePage.tsx')).toMatch(
+      /<div className="flex flex-wrap items-center gap-1\.5">\s*<Button type="button" variant="outline" size="sm" onClick=\{\(\) => setOptionsOpen\(true\)\}>/,
+    )
+  })
+
+  it('the four bars a page keeps in reach are `StickyActions`, with the row’s look', () => {
+    const bar = read('components/StickyActions.tsx')
+    for (const utility of [
+      'z-20',
+      'h-(--row-h)',
+      'rounded-[20px]',
+      'border-input',
+      'bg-row',
+      'shadow-(--shadow-row)',
+    ]) {
+      expect(bar, utility).toContain(` ${utility} `)
+    }
+    const users = sources()
+      .filter(([path, text]) => path !== 'components/StickyActions.tsx' && /<StickyActions\b/.test(text))
+      .map(([path]) => path)
+    expect(users.sort()).toEqual([
+      'pages/coleccion/ImportPreviewPage.tsx',
+      'pages/mazos/DeckEditorPage.tsx',
+      'pages/mazos/DeckImportPage.tsx',
+      'pages/partidas/QuickMatchForm.tsx',
+    ])
+    // The row itself has the same look.
+    const row = read('app/FixedRow.tsx')
+    expect(row).toContain(
+      'h-(--row-h) items-center gap-1.5 rounded-[20px] border border-input bg-row p-[5px] shadow-(--shadow-row)',
+    )
+  })
+
+  it('the column is a phone at every width: no viewport variant inside it', () => {
+    // Tailwind's breakpoints follow the window. They stay only where the element is relative to the window.
+    const found = sources()
+      .flatMap(([path, text]) =>
+        [
+          // `max-md:`, `min-[600px]:` and `max-[480px]:` follow the window as much as `md:` does.
+          ...text.matchAll(
+            /(?<=^|[\s"'`])(?:[\w-]+(?:\[[^\]\s]*\])?:)*(?:(?:max-|min-)?(?:sm|md|lg|xl|2xl)|(?:min|max)-\[[^\]\s]*\]):[\w[(*-][^\s"'`]*/gm,
+          ),
+        ].map((match) => `${path} ${match[0]}`),
+      )
+      .sort()
+    expect(found).toEqual([
+      'components/GlobalSearch.tsx sm:top-12',
+      'components/ui/alert.tsx md:text-pretty',
+      'components/ui/dialog.tsx sm:flex-row',
+      'components/ui/dialog.tsx sm:justify-end',
+      'components/ui/dialog.tsx sm:max-w-sm',
+      'components/ui/sheet.tsx data-[side=left]:sm:max-w-sm',
+      'components/ui/sheet.tsx data-[side=right]:sm:max-w-sm',
+    ])
+  })
+
+  describe.each(THEMES)('WCAG AA in the %s theme', (theme) => {
+    const TEXT = 4.5
+    const EDGE = 3
+
+    it('the tab bar: a tab’s label on the bar, the lit one on the bar and on its pill', () => {
+      const bar = read('app/TabBar.tsx')
+      expect(bar).toContain('border-t bg-card ')
+      expect(bar).toContain("lit ? 'font-bold text-foreground' : 'font-semibold text-foreground-3'")
+      expect(bar).toContain("lit && 'bg-surface-3 shadow-[inset_0_1px_0_var(--edge)]'")
+      expect(contrast('--foreground-3', '--card', theme)).toBeGreaterThanOrEqual(TEXT)
+      expect(contrast('--foreground', '--card', theme)).toBeGreaterThanOrEqual(TEXT)
+      expect(contrast('--foreground', '--surface-3', theme)).toBeGreaterThanOrEqual(TEXT)
+    })
+
+    it('the fixed row: a view on the row, the chosen view on its fill, the action, the row’s edge', () => {
+      const row = read('app/FixedRow.tsx')
+      expect(row).toMatch(/const VIEW_TAB =\s*'[^']*\btext-foreground-2\b/)
+      expect(row).toContain("'bg-row-selected font-bold text-foreground shadow-[inset_0_0_0_1.5px_var(--input)]'")
+      expect(row).toContain("'bg-primary font-bold text-primary-foreground'")
+      expect(row).toMatch(/rounded-\[15px\] bg-primary [^']*\btext-primary-foreground\b/)
+      expect(contrast('--foreground-2', '--row', theme)).toBeGreaterThanOrEqual(TEXT)
+      expect(contrast('--foreground', '--row-selected', theme)).toBeGreaterThanOrEqual(TEXT)
+      expect(contrast('--primary-foreground', '--primary', theme)).toBeGreaterThanOrEqual(TEXT)
+      // The edge that tells the row from the page, and from its own fill.
+      expect(contrast('--input', '--background', theme)).toBeGreaterThanOrEqual(EDGE)
+      expect(contrast('--input', '--row', theme)).toBeGreaterThanOrEqual(EDGE)
+    })
+
+    it('the header: the title, the way to the Menú and its dot, the skip link', () => {
+      const shell = read('app/AppShell.tsx')
+      // 12 px, as D and as the kit's «Volver» next to it.
+      expect(shell).toMatch(/rounded-lg text-foreground-2 hover:bg-muted hover:text-foreground /)
+      expect(shell).toContain('rounded-full bg-warning ring-2 ring-background')
+      expect(shell).toMatch(/rounded-lg bg-primary px-4 font-semibold text-primary-foreground focus:translate-y-0/)
+      expect(shell).not.toContain('rounded-xl')
+      expect(contrast('--foreground', '--background', theme)).toBeGreaterThanOrEqual(TEXT)
+      expect(contrast('--foreground-2', '--background', theme)).toBeGreaterThanOrEqual(TEXT)
+      expect(contrast('--foreground', '--muted', theme)).toBeGreaterThanOrEqual(TEXT)
+      expect(contrast('--warning', '--background', theme)).toBeGreaterThanOrEqual(EDGE)
+      expect(contrast('--primary-foreground', '--primary', theme)).toBeGreaterThanOrEqual(TEXT)
+    })
+  })
+})
+
+describe('how much the app moves', () => {
+  const LEVEL = ['--dur-1', '--dur-2', '--dur-3', '--spring']
+  const SUBTLE = block(':root[data-motion="subtle"]')
+  const NONE = block(':root[data-motion="none"]')
+  /** Every innermost rule of the stylesheet, selector → declarations (the last one wins, as in the cascade). */
+  const rules = new Map(
+    [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((rule) => [
+      (rule[1] ?? '').replace(/\s+/g, ' ').trim(),
+      (rule[2] ?? '').replace(/\s+/g, ' ').trim(),
+    ]),
+  )
+  /** The body of `@layer base`, braces balanced. */
+  const baseLayer = (() => {
+    const start = CSS.indexOf('@layer base {')
+    let depth = 0
+    for (let at = CSS.indexOf('{', start); at < CSS.length; at++) {
+      if (CSS[at] === '{') depth += 1
+      if (CSS[at] === '}') depth -= 1
+      if (depth === 0) return CSS.slice(start, at + 1)
+    }
+    throw new Error('no «@layer base» in src/index.css')
+  })()
+
+  it('has three levels, and each sets the three durations, with their unit, and the spring', () => {
+    const level = (values: Map<string, string>) => LEVEL.map((name) => values.get(name))
+    // «Expresivo» is the page as index.html leaves it: the values of :root.
+    expect(level(DARK)).toEqual(['140ms', '280ms', '520ms', 'cubic-bezier(0.2, 1.45, 0.35, 1)'])
+    expect(level(SUBTLE)).toEqual(['90ms', '150ms', '150ms', 'ease-out'])
+    // With the unit: a bare 0 inside the `animation` shorthand is read as an iteration count.
+    expect(level(NONE)).toEqual(['0ms', '0ms', '0ms', 'linear'])
+    // A level changes nothing else, and the theme does not change the motion.
+    expect([...SUBTLE.keys()]).toEqual(LEVEL)
+    expect([...NONE.keys()]).toEqual(LEVEL)
+    for (const name of LEVEL) expect(LIGHT.has(name), name).toBe(false)
+    for (const values of [DARK, SUBTLE, NONE]) {
+      for (const name of LEVEL.slice(0, 3)) expect(values.get(name), name).toMatch(/^\d+ms$/)
+    }
+    // No level is told apart by anything but the attribute public/look.js and src/lib/look.ts write.
+    expect(CSS.match(/\[data-motion="[a-z]+"\]/g)?.every((level) => /"(full|subtle|none)"/.test(level))).toBe(true)
+    expect(read('lib/look.ts')).toContain("setAttribute('data-motion', resolveMotion(look.motion))")
+  })
+
+  it('«Ninguno» stops everything, whoever wrote it, except a spinner', () => {
+    const stop = [...rules].filter(([, body]) => /animation:\s*none !important/.test(body))
+    expect(stop).toHaveLength(1)
+    const [selector, body] = stop[0] as [string, string]
+    expect(selector.split(/\s*,\s*/)).toEqual([
+      ':root[data-motion="none"] *:not(.animate-spin)',
+      ':root[data-motion="none"] *:not(.animate-spin)::before',
+      ':root[data-motion="none"] *:not(.animate-spin)::after',
+    ])
+    expect(body).toBe('animation: none !important; transition: none !important; scroll-behavior: auto !important;')
+    // Each `!important` of the stylesheet says why it is there.
+    const important = CSS.match(/!important/g)?.length ?? 0
+    expect(important).toBe(4)
+    expect(
+      RAW_CSS.match(/\/\* biome-ignore lint\/complexity\/noImportantStyles: [^*]+\*\/\s*[\w-]+:[^;]*!important;/g),
+    ).toHaveLength(important)
+    // What is spared is feedback (something is still working), and it is the class the spinners carry.
+    expect(read('components/ListState.tsx')).toContain("'size-4 animate-spin'")
+    expect(read('components/ui/sonner.tsx')).toContain('animate-spin')
+  })
+
+  it('a screen fades in once: opacity only, in the base layer, and never the loading rows', () => {
+    // In the layer, so a utility of the page wins; outside it the rule would beat them all.
+    expect(baseLayer).toMatch(
+      /\n {2}main > :not\(\[aria-busy="true"\]\)\s*\{\s*animation:\s*page-in var\(--dur-2\) linear backwards;\s*\}/,
+    )
+    expect(CSS.replace(baseLayer, '')).not.toMatch(/animation:[^;]*page-in/)
+    expect(CSS.match(/animation:[^;]*page-in/g)).toHaveLength(1)
+    const frames = /@keyframes page-in\s*\{([\s\S]*?)\n\}/.exec(CSS)?.[1] ?? ''
+    expect(frames.replace(/\s+/g, ' ').trim()).toBe('from { opacity: 0; }')
+    // A transform would re-anchor the fixed bars of a game and of a puzzle while it runs.
+    expect(frames).not.toMatch(/transform|translate|scale|filter/)
+    for (const file of ['pages/jugar/GamePage.tsx', 'pages/jugar/PuzzlePage.tsx']) {
+      expect(read(file), file).toMatch(/className="fixed inset-x-0 /)
+    }
+    // The loading rows are what React swaps for the page when the data arrives: the fade would start again.
+    expect(read('components/ListState.tsx')).toMatch(/<output [^>]*aria-busy="true"/)
+  })
+
+  it('a dialog and a sheet, and their scrims, come in with --dur-2 and leave with --dur-1', () => {
+    for (const file of ['dialog.tsx', 'sheet.tsx']) {
+      // The scrim and the content: the two class lists of the file that are fixed to the window.
+      const fixed = [...read(`components/ui/${file}`).matchAll(/'(fixed [^']*)'/g)].map((match) =>
+        (match[1] ?? '').split(' '),
+      )
+      expect(fixed, file).toHaveLength(2)
+      for (const classes of fixed) {
+        expect(classes, file).toContain('duration-(--dur-2)')
+        // Shorter on the way out: the page under a closing dialog cannot be tapped until it is gone.
+        expect(classes, file).toContain('data-closed:duration-(--dur-1)')
+        expect(
+          classes.filter((name) => /(^|:)duration-\d/.test(name)),
+          file,
+        ).toEqual([])
+        expect(classes, file).toContain('data-open:animate-in')
+        expect(classes, file).toContain('data-closed:animate-out')
+      }
+    }
+  })
+
+  it('the tab that becomes lit pops with «Expresivo» only, and what is pressed follows the level', () => {
+    expect(
+      rules.get(':root[data-motion="full"] [data-slot="tab-bar"] [aria-current="page"] [data-slot="tab-pill"]'),
+    ).toBe('animation: tab-pop var(--dur-3) var(--spring);')
+    expect(CSS.match(/animation:[^;]*tab-pop/g)).toHaveLength(1)
+    expect(read('app/TabBar.tsx')).toContain('data-slot="tab-pill"')
+    const row = read('app/FixedRow.tsx')
+    expect(row).toMatch(/transition-transform duration-\(--dur-1\) [^']*active:scale-\[\.97\]/)
+    expect(row).toMatch(/const VIEW_TAB =\s*'[^']*transition-colors duration-\(--dur-2\)/)
+    expect(read('components/SegmentedRadio.tsx')).toContain(
+      'transition-[background-color,color] duration-(--dur-2) ease-(--ease)',
+    )
+  })
+
+  it('the board with «Ninguno» is the board of a system that reduces motion', () => {
+    // The media query (the last rule of each selector) and the attribute say the same.
+    expect(CSS).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.board-float\s*\{/)
+    expect(rules.get('.board-float')).toBe('animation: none; opacity: 1;')
+    expect(rules.get('.board-banner')).toBe('animation: none; opacity: 0;')
+    expect(rules.get('.board-target, .board-glow, .board-fresh')).toBe('animation: none;')
+    expect(rules.get(':root[data-motion="none"] .board-float')).toBe(rules.get('.board-float'))
+    expect(rules.get(':root[data-motion="none"] .board-banner')).toBe(rules.get('.board-banner'))
+    expect(rules.get(':root[data-motion="none"] :is(.board-target, .board-glow, .board-fresh)')).toBe(
+      'animation: none;',
+    )
+  })
+
+  describe.each(THEMES)('the choices of Menú → Aspecto in the %s theme', (theme) => {
+    it('a segment on its track and the chosen one on its fill pass AA; the track has an edge', () => {
+      const segments = read('components/SegmentedRadio.tsx')
+      expect(segments).toContain('rounded-[14px] border border-input bg-surface-3 p-0.5')
+      expect(segments).toMatch(/\btext-foreground-2\b[^"]*data-\[state=checked\]:bg-primary/)
+      expect(segments).toContain('data-[state=checked]:text-primary-foreground')
+      expect(contrast('--foreground-2', '--surface-3', theme)).toBeGreaterThanOrEqual(4.5)
+      expect(contrast('--primary-foreground', '--primary', theme)).toBeGreaterThanOrEqual(4.5)
+      for (const surface of ['--background', '--surface-3']) {
+        expect(contrast('--input', surface, theme), surface).toBeGreaterThanOrEqual(3)
+      }
+      // The focus ring is drawn outside the segment, on the track.
+      expect(segments).toContain('focus-visible:ring-2 focus-visible:ring-ring')
+      expect(contrast('--ring', '--surface-3', theme)).toBeGreaterThanOrEqual(3)
+    })
   })
 })
 

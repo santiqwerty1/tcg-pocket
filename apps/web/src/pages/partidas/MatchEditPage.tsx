@@ -6,6 +6,7 @@ import { errorMessage } from '@/api/client'
 import { useDeleteMatch, useMatch, useMatchSuggestions, useUpdateMatch } from '@/api/matches'
 import { useMatchRanked, useRanked } from '@/api/ranked'
 import type { Match, MatchInput, MatchMode, MatchResult, MatchSuggestions } from '@/api/schemas'
+import { useGoBack } from '@/app/AppShell'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ErrorState, LoadingRows, Spinner } from '@/components/ListState'
 import { Field, Section } from '@/components/Section'
@@ -21,6 +22,7 @@ import { SeenCardsField, seenCardsBody } from './SeenCards'
 
 function MatchEditForm({ match, suggestions }: { match: Match; suggestions: MatchSuggestions }) {
   const navigate = useNavigate()
+  const goBack = useGoBack()
   const update = useUpdateMatch()
   const remove = useDeleteMatch()
   const initialPlayedAt = toLocalInput(match.playedAt)
@@ -66,8 +68,8 @@ function MatchEditForm({ match, suggestions }: { match: Match; suggestions: Matc
     try {
       await update.mutateAsync({ id: match.id, patch })
       toast.success('Partida guardada')
-      if (window.history.length > 1) navigate(-1)
-      else navigate('/partidas', { replace: true })
+      // The shell's «Volver»: back to where the match was opened from, or up to Hoy in this entry's place.
+      goBack({ replace: true })
     } catch (error) {
       toast.error(errorMessage(error))
     }

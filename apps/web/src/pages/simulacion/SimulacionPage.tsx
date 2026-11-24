@@ -94,7 +94,7 @@ export function EngineLine({ engine }: { engine: EngineInfo }) {
       ) : null}
       {engine.workers.length === 0 ? (
         <p className="text-muted-foreground">
-          Ningún worker se conectó todavía. Creá un token de tipo worker en Más → Tokens de API, guardalo en{' '}
+          Ningún worker se conectó todavía. Creá un token de tipo worker en Menú → Tokens de API, guardalo en{' '}
           <code className="font-mono text-xs">%LOCALAPPDATA%\tcg-worker\config.json</code> como{' '}
           <code className="font-mono text-xs">{'{"token": "tcg_wk_…"}'}</code> y en la PC corré{' '}
           <code className="font-mono text-xs">pnpm -F @tcg/worker install-task</code>.

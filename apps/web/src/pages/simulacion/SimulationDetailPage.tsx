@@ -632,7 +632,7 @@ export function SimulationDetailPage() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <div className="flex items-start gap-2">
-          <h1 className="min-w-0 flex-1 text-lg font-semibold">{current.label}</h1>
+          <h2 className="min-w-0 flex-1 text-lg font-semibold">{current.label}</h2>
           <StatusBadge status={current.status} />
           {current.priority > 0 ? <Badge variant="secondary">Adelantada</Badge> : null}
         </div>

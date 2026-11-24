@@ -89,7 +89,7 @@ export function ImportPreviewView({ preview, onResolveAdjustment, resolvingId }:
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2">
         {!remote ? <Stat label="Filas" value={formatNumber(preview.rowCount)} /> : null}
         {!remote ? (
           <Stat label="Suma ingenua" value={formatNumber(preview.naiveTotal)} hint="sumando las gemelas dos veces" />

@@ -54,7 +54,7 @@ export function MissionsPage() {
       {data && data.total === 0 ? (
         <EmptyState
           title="El catálogo no tiene misiones"
-          description="Llegan con la próxima sincronización del catálogo (Más → Catálogo)."
+          description="Llegan con la próxima sincronización del catálogo (Menú → Catálogo)."
         />
       ) : null}
       {data && data.total > 0 && data.items.length === 0 ? (

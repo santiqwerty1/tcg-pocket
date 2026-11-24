@@ -34,4 +34,13 @@ describe('the screens’ source', () => {
     }
     expect(found).toEqual([])
   })
+
+  it('sends nobody to «Más → …»: that screen is the Menú now', () => {
+    // Texts and comments alike: both name the place a reader will look for.
+    expect(
+      sources(SRC)
+        .filter((file) => /Más\s*→/.test(readFileSync(file, 'utf8')))
+        .map((file) => relative(SRC, file)),
+    ).toEqual([])
+  })
 })

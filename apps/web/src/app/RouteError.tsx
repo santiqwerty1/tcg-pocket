@@ -70,10 +70,10 @@ export function RouteError() {
   )
 }
 
-/** What shows while the first screen of a visit loads its chunk. */
+/** What shows while the first screen of a visit loads its chunk: the page's rows, where the header will leave them. */
 export function ShellFallback() {
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 pt-18">
+    <main className="px-4 pt-[calc(var(--header-h)+6px)]">
       <LoadingRows rows={5} />
     </main>
   )

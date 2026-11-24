@@ -59,7 +59,7 @@ export function TurnOrderCard({
         {Math.round(turnOrder.coverage)}
         {PERCENT} de estas partidas tienen anotado quién empezó
         {turnOrder.unknown > 0 ? ` (${formatNumber(turnOrder.unknown)} sin el dato)` : ''}. Lo podés pedir siempre en
-        Más → Ajustes de la app.
+        Menú → Ajustes de la app.
       </p>
     </div>
   )

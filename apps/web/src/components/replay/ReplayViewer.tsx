@@ -21,6 +21,7 @@ import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { boardChanges, type Seat, type SlotRef } from '@/lib/board'
+import { scrollBehavior } from '@/lib/look'
 import { groupByTurn, type Replay, ReplayReader, type ReplayState, type ReplayStep, scoreLabels } from '@/lib/replay'
 import { cn } from '@/lib/utils'
 import { VerdictBadge } from '@/pages/jugar/Coach'
@@ -252,7 +253,10 @@ function Viewer({
         </div>
       ) : null}
 
-      <div className="sticky bottom-16 z-10 flex flex-col gap-1.5 rounded-lg border bg-background/95 p-2 backdrop-blur">
+      <div
+        data-slot="page-bar"
+        className="sticky bottom-[calc(var(--bar-h)+8px+env(safe-area-inset-bottom))] z-10 flex flex-col gap-1.5 rounded-lg border bg-background/95 p-2 backdrop-blur"
+      >
         <div className="relative h-5">
           <input
             type="range"
@@ -353,7 +357,7 @@ function Viewer({
             onSelect={(index) => {
               setPlaying(false)
               setSelected(index)
-              window.scrollTo({ top: 0, behavior: 'smooth' })
+              window.scrollTo({ top: 0, behavior: scrollBehavior() })
             }}
           />
         ) : null}

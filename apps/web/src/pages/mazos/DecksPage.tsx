@@ -1,4 +1,4 @@
-import { ClipboardPasteIcon, DicesIcon, HammerIcon, PlusIcon, TrophyIcon } from 'lucide-react'
+import { ClipboardPasteIcon, DicesIcon, HammerIcon, TrophyIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
@@ -100,13 +100,8 @@ export function DecksPage() {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* «Nuevo mazo» is the action of the shell's fixed row on this screen. */}
       <div className="flex flex-wrap gap-2">
-        <Button asChild>
-          <Link to="/mazos/nuevo">
-            <PlusIcon data-icon="inline-start" />
-            Nuevo mazo
-          </Link>
-        </Button>
         <Button variant="outline" asChild>
           <Link to="/mazos/importar">
             <ClipboardPasteIcon data-icon="inline-start" />

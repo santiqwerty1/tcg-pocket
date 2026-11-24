@@ -194,7 +194,10 @@ function Solve({ puzzle, reader }: { puzzle: Puzzle; reader: ReplayReader }) {
       />
 
       {result ? null : (
-        <div className="fixed inset-x-0 bottom-16 z-30 border-t bg-background/95 px-3 py-2 backdrop-blur pb-safe">
+        <div
+          data-slot="page-bar"
+          className="fixed inset-x-0 bottom-[calc(var(--bar-h)+env(safe-area-inset-bottom))] z-30 mx-auto max-w-(--frame) border-t bg-background/95 px-3 py-2 backdrop-blur"
+        >
           {play.selected ? (
             <div className="mb-1.5 flex items-center gap-2 text-sm">
               <span className="flex-1 text-ring">Tocá un lugar marcado</span>
@@ -203,7 +206,7 @@ function Solve({ puzzle, reader }: { puzzle: Puzzle; reader: ReplayReader }) {
               </Button>
             </div>
           ) : null}
-          <div className="mx-auto flex max-w-3xl items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <Button type="button" variant="outline" size="sm" onClick={() => setOptionsOpen(true)}>
               <ListIcon aria-hidden="true" />
               Opciones ({play.actions.length})
