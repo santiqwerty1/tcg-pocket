@@ -3,7 +3,7 @@ tipo: indice
 titulo: 'Decisiones'
 area: proyecto
 estado: vigente
-actualizado: '2026-11-12'
+actualizado: '2026-11-24'
 origen:
   - posta generar
 revisar: false
@@ -34,7 +34,7 @@ revisar: false
 | [D-015](D-015.md) | El backup no incluye las simulaciones | vigente | — | 2026-10-08 |
 | [D-016](D-016.md) | Versión de torneo de cada mazo y Sobres apuntando a ella | vigente | — | 2026-10-08 |
 | [D-017](D-017.md) | Qué puede escribir Claude | vigente | — | 2026-10-08 |
-| [D-018](D-018.md) | Cómo mide y busca el laboratorio de mazos | vigente | — | 2026-10-08 |
+| [D-018](D-018.md) | Cómo mide y busca el laboratorio de mazos | vigente | — | 2026-11-24 |
 | [D-019](D-019.md) | Cómo se juega contra el bot y cómo se mide la consistencia | vigente | — | 2026-10-08 |
 | [D-020](D-020.md) | Consolidar antes de sumar funciones | vigente | — | 2026-10-11 |
 | [D-021](D-021.md) | Reparto del trabajo entre las tres sesiones de Claude | vigente | — | 2026-10-19 |
