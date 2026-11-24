@@ -4,6 +4,7 @@
  * choice of this device is localStorage['tcg.look'] = { "theme": "dark" | "light" | "system", "motion": "full" |
  * "subtle" | "none" }; dark and full when there is nothing valid; «system» is light only if the system asks for light;
  * the motion is «none» whenever the system asks to reduce it. It must never throw: the storage can be blocked.
+ * The two metas follow the theme too: `color-scheme` is what the browser paints with until the stylesheet arrives.
  */
 ;(() => {
   let theme = 'dark'
@@ -21,6 +22,8 @@
   try {
     document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark')
     document.documentElement.setAttribute('data-motion', motion)
+    const scheme = document.querySelector('meta[name="color-scheme"]')
+    if (scheme) scheme.setAttribute('content', light ? 'light' : 'dark')
     const meta = document.querySelector('meta[name="theme-color"]')
     if (meta) meta.setAttribute('content', light ? '#f1eee8' : '#0a0e14')
   } catch {}

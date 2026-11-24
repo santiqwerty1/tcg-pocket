@@ -410,7 +410,7 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
         >
           {selected ? (
             <div className="mb-1.5 flex items-center gap-2 text-sm">
-              <span className="flex-1 text-primary">Tocá un lugar marcado</span>
+              <span className="flex-1 text-ring">Tocá un lugar marcado</span>
               <Button type="button" variant="ghost" size="sm" onClick={() => setSelected(null)}>
                 <XIcon aria-hidden="true" />
                 Cancelar

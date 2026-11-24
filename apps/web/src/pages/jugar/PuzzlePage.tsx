@@ -200,7 +200,7 @@ function Solve({ puzzle, reader }: { puzzle: Puzzle; reader: ReplayReader }) {
         >
           {play.selected ? (
             <div className="mb-1.5 flex items-center gap-2 text-sm">
-              <span className="flex-1 text-primary">Tocá un lugar marcado</span>
+              <span className="flex-1 text-ring">Tocá un lugar marcado</span>
               <Button type="button" variant="ghost" size="sm" onClick={() => play.setSelected(null)}>
                 Cancelar
               </Button>

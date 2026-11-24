@@ -2,9 +2,9 @@
  * The look of the app on this device: the theme, how much it moves and where the views of a screen go. The choice
  * lives in `localStorage['tcg.look']` as `{ "theme": "dark" | "light" | "system", "motion": "full" | "subtle" | "none",
  * "views": "bottom" | "top" }` (dark, full and bottom when nothing valid is stored). The theme and the motion reach
- * the page as attributes of <html>, always resolved: `data-theme="dark" | "light"` (plus the `theme-color` meta) and
- * `data-motion="full" | "subtle" | "none"`, which is «none» whenever the system asks to reduce motion. The place of
- * the views is read by the shell from `useLook()`.
+ * the page as attributes of <html>, always resolved: `data-theme="dark" | "light"` (plus the `color-scheme` and
+ * `theme-color` metas) and `data-motion="full" | "subtle" | "none"`, which is «none» whenever the system asks to
+ * reduce motion. The place of the views is read by the shell from `useLook()`.
  *
  * `public/look.js` applies the same rules before the first paint (the CSP forbids an inline script); the two are
  * tested against the same cases in `look.test.ts`. It is not personal data: logging out keeps it.
@@ -88,12 +88,16 @@ export function scrollBehavior(): ScrollBehavior {
   return resolveMotion(readLook().motion) === 'none' ? 'auto' : 'smooth'
 }
 
-/** Puts the look on the page: the attributes the tokens hang from and the colour of the browser's bars. */
+/**
+ * Puts the look on the page: the attributes the tokens hang from, the scheme the browser paints with before the
+ * stylesheet is there (the `color-scheme` meta) and the colour of its bars.
+ */
 export function applyLook(look: Look = readLook()): ResolvedTheme {
   const resolved = resolveTheme(look.theme)
   if (typeof document === 'undefined') return resolved
   document.documentElement.setAttribute('data-theme', resolved)
   document.documentElement.setAttribute('data-motion', resolveMotion(look.motion))
+  document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', resolved)
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[resolved])
   return resolved
 }
