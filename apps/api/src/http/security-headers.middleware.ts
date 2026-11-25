@@ -7,10 +7,11 @@ import { requestPathname } from './public-routes.js'
  * Baseline CSP for the Vite SPA: own scripts/styles only (Tailwind emits inline styles, hence 'unsafe-inline' for
  * style-src), card images from the tracker's raw GitHub URLs (invariant I11: links, never copies; the service worker
  * fetches them too, to keep the ones already seen — Fase 22 — hence connect-src), no framing.
- * The login page overrides script-src with a per-response nonce for its inline script. deckgym's replay viewer
- * (`/viewer/`, D-014) compiles PixiJS shaders with `new Function`: its pages alone get 'unsafe-eval'. The engine of the
- * browser (T-015) is WebAssembly, compiled in a Web Worker whose policy is the one of its script's response: that
- * script alone gets 'wasm-unsafe-eval', which lets it compile WebAssembly and nothing else (review of #86).
+ * The login page overrides script-src with a per-response nonce for its two inline scripts (the theme before the first
+ * paint, and the form). deckgym's replay viewer (`/viewer/`, D-014) compiles PixiJS shaders with `new Function`: its
+ * pages alone get 'unsafe-eval'. The engine of the browser (T-015) is WebAssembly, compiled in a Web Worker whose
+ * policy is the one of its script's response: that script alone gets 'wasm-unsafe-eval', which lets it compile
+ * WebAssembly and nothing else (review of #86).
  */
 export function contentSecurityPolicy(
   scriptNonce?: string,

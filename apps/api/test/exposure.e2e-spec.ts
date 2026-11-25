@@ -19,7 +19,8 @@ describe('exposure (e2e)', () => {
   })
 
   it('redirects unauthenticated chunk and shell requests too (nothing is served without the cookie)', async () => {
-    for (const path of ['/assets/index-abc123.js', '/index.html', '/sw.js', '/icons/../index.html']) {
+    // /look.js too: the login page does not load it, it carries the rule of the theme inline.
+    for (const path of ['/assets/index-abc123.js', '/index.html', '/sw.js', '/look.js', '/icons/../index.html']) {
       const response = await test.http().get(path).set('Accept', '*/*')
       expect(response.status, path).toBe(302)
       expect(response.headers.location, path).toBe('/login')
@@ -49,7 +50,7 @@ describe('exposure (e2e)', () => {
     expect(response.body).toEqual({ ok: true, version: test.env.version, catalogCommit: null, engineRev: null })
   })
 
-  it('serves a self-contained Spanish login page with a nonce-protected inline script', async () => {
+  it('serves a self-contained Spanish login page with its two inline scripts under the nonce of the response', async () => {
     const response = await test.http().get('/login').set('Accept', 'text/html')
     expect(response.status).toBe(200)
     expect(response.headers['content-type']).toMatch(/text\/html/)
@@ -62,9 +63,23 @@ describe('exposure (e2e)', () => {
     expect(html).toContain("fetch('/api/auth/login'")
     expect(html).toContain('<link rel="manifest" href="/manifest.webmanifest">')
     expect(html).not.toMatch(/<(script|link|img)[^>]+(src|href)=["']https?:/)
-    const nonce = /<script nonce="([^"]+)">/.exec(html)?.[1]
+    // The theme before the first paint (in <head>) and the form: both inline, both with the nonce the header allows.
+    const nonce = /script-src 'self' 'nonce-([\w-]+)'/.exec(response.headers['content-security-policy'] ?? '')?.[1]
     expect(nonce).toBeTruthy()
-    expect(response.headers['content-security-policy']).toContain(`'nonce-${nonce}'`)
+    const scripts = [...html.matchAll(/<script\b([^>]*)>/g)].map((found) => found[1])
+    expect(scripts).toEqual([` nonce="${nonce}"`, ` nonce="${nonce}"`])
+    // A nonce per response, never one to reuse.
+    const again = await test.http().get('/login').set('Accept', 'text/html')
+    expect(again.headers['content-security-policy']).not.toContain(`'nonce-${nonce}'`)
+  })
+
+  it('answers 401 to a POST to /login: the form sent without its script is no login attempt', async () => {
+    // Where the page's script did not run, the browser posts the form to the page's own address.
+    expect((await test.http().get('/login')).text).toContain('<form id="login" method="post" novalidate>')
+    const response = await test.http().post('/login').type('form').send({ email: 'a@b.c', password: 'x', totp: '' })
+    expect(response.status).toBe(401)
+    expect(response.body.error.code).toBe('unauthenticated')
+    expect(response.headers['set-cookie']).toBeUndefined()
   })
 
   it('returns 404 under /.well-known without a session', async () => {

@@ -54,7 +54,7 @@ La API sirve `dist/` detrás del middleware de sesión (`WEB_DIST`).
 | Componentes propios (`Stat` con n e IC 95 %, chips de energía, stepper, estados de lista) | `src/components/` |
 | Componentes generados con la CLI de shadcn (MIT; `components.json`) | `src/components/ui/` |
 | Tema: tokens de la maqueta D en dos temas (`data-theme="dark" \| "light"` en `<html>`), los tres niveles de movimiento (`data-motion`), las medidas del marco, tipografía y `@font-face` | `src/index.css` |
-| El aspecto de este dispositivo (`localStorage['tcg.look']`: tema, movimiento y lugar de las vistas): antes del primer pintado y desde React (`useLook`) | `public/look.js`, `src/lib/look.ts` |
+| El aspecto de este dispositivo (`localStorage['tcg.look']`: tema, movimiento y lugar de las vistas): antes del primer pintado y desde React (`useLook`). La página de ingreso, que sirve la API, repite en línea la regla del tema y copia de `index.css` los tokens que usa, las fuentes de reserva y la columna: `apps/api/src/http/login-page.ts`, con un test que la compara con `look.js` y con `index.css` | `public/look.js`, `src/lib/look.ts` |
 | Fuentes propias (Barlow Semi Condensed e Inter, OFL 1.1) y su licencia | `src/assets/fonts/`, `public/licenses/fonts-ofl.txt` |
 | Íconos de la PWA (generados sin dependencias con `node scripts/make-icons.mjs`) | `public/icons/`, `public/favicon.svg`, `public/apple-touch-icon.png` |
 
