@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-11-24 desde la etiqueta `v1.0.0` (444 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-11-25 desde la etiqueta `v1.0.0` (446 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- mock-up D palette and the device's theme on the login page (#198) `21fa8d9`
 - phase 0b of mock-up D — the frame: column, header, tab bar, fixed row and the Menú (#193) `573836a`
 - phase 0a of mock-up D — tokens, theme, typography and fonts (#190) `787e481`
 - Misty and Sweet Honey's new choices in Spanish (D-031) `11d7cc1`
@@ -297,6 +298,7 @@ _Borrador generado al 2026-11-24 desde la etiqueta `v1.0.0` (444 commits). Escri
 
 ### Documentado
 
+- 24/11 — phase 0 of mock-up D deployed (d88df8c); phase 1 approved; «Más →» becomes «Menú →» or its tab `c9d601d`
 - 24/11 — #195 in main; number 71.53–71.57 `3706f58`
 - 24/11 — phase 0 of mock-up D in main; number 71.1–71.52; egress after #191 measured (R-014) (#190, #193) `d7fc5e2`
 - 19–20/11 — #191 deployed, mock-up D chosen; number 69.8–69.17 and 70.6–70.12 (R-014) `bf04a5e`
