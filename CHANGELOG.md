@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-11-25 desde la etiqueta `v1.0.0` (446 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-11-26 desde la etiqueta `v1.0.0` (447 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -298,6 +298,7 @@ _Borrador generado al 2026-11-25 desde la etiqueta `v1.0.0` (446 commits). Escri
 
 ### Documentado
 
+- 25/11 — #198 in main; number 71.58–71.69; the phase 1 plan `495b7c2`
 - 24/11 — phase 0 of mock-up D deployed (d88df8c); phase 1 approved; «Más →» becomes «Menú →» or its tab `c9d601d`
 - 24/11 — #195 in main; number 71.53–71.57 `3706f58`
 - 24/11 — phase 0 of mock-up D in main; number 71.1–71.52; egress after #191 measured (R-014) (#190, #193) `d7fc5e2`
