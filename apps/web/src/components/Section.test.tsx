@@ -4,17 +4,18 @@ import { useEffect } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { Fold, Section } from './Section'
 
+function Heavy({ onMount }: { onMount: () => void }) {
+  useEffect(() => onMount(), [onMount])
+  return <Section title="Mano inicial">contenido</Section>
+}
+
 describe('Fold', () => {
   it('mounts its content (and what it fetches) only when opened, and keeps the title once', async () => {
     const mounted = vi.fn()
-    function Heavy() {
-      useEffect(() => mounted(), [])
-      return <Section title="Mano inicial">contenido</Section>
-    }
     const user = userEvent.setup()
     render(
       <Fold title="Mano inicial">
-        <Heavy />
+        <Heavy onMount={mounted} />
       </Fold>,
     )
     expect(mounted).not.toHaveBeenCalled()
