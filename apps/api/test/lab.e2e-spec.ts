@@ -3438,8 +3438,11 @@ describe('laboratorio (e2e)', () => {
       expect(changed).not.toEqual(cold.body)
       expect(changed).toEqual(await everything())
 
-      // An engine change moves chunks to a job of their own, «Frenar» deletes others, a round adds new ones, and
-      // «Reintentar lo que falló» takes a failed one back to the queue.
+      // An engine change moves chunks to a job of their own, «Frenar» deletes others and a round adds new ones, inside
+      // the rounds too (so the view moves); «Reintentar lo que falló» takes a failed one back to the queue. What is held
+      // is counted before any read of everything (review: a gone chunk past the rounds moves no number).
+      const [inRound, inRoundGone] = played.filter((chunk) => chunk.id !== mine.id && chunk.id !== second.id)
+      if (!inRound || !inRoundGone) throw new Error('no chunks')
       const kept = await test.prisma.simulationJob.create({
         data: {
           kind: 'explore',
@@ -3456,19 +3459,25 @@ describe('laboratorio (e2e)', () => {
       })
       apart = kept.id
       await test.prisma.simulationChunk.updateMany({
-        where: { id: { in: extra.slice(0, 50).map((chunk) => chunk.id) } },
+        where: { id: { in: [inRound.id, ...extra.slice(0, 50).map((chunk) => chunk.id)] } },
         data: { jobId: kept.id },
       })
-      await test.prisma.simulationChunk.deleteMany({ where: { id: { in: extra.slice(50, 100).map((c) => c.id) } } })
+      await test.prisma.simulationChunk.deleteMany({
+        where: { id: { in: [inRoundGone.id, ...extra.slice(50, 100).map((chunk) => chunk.id)] } },
+      })
       await test.prisma.simulationChunk.create({
         data: { jobId: id, idx: from + 5000, snapshotAId: base, snapshotBId: rival, games: 38, seed: 1n },
       })
       await test.prisma.simulationChunk.update({ where: { id: second.id }, data: { status: 'failed' } })
+      const now = played.length + extra.length - 102 + 1
       const moved = await view()
+      expect(rows.chunks).toBe(now)
+      expect(moved).not.toEqual(changed)
       expect(moved).toEqual(await everything())
       await test.prisma.simulationChunk.update({ where: { id: second.id }, data: { status: 'queued' } })
-      expect(await view()).toEqual(await everything())
-      expect(rows.chunks).toBe(played.length + extra.length - 100 + 1)
+      const requeued = await view()
+      expect(rows.chunks).toBe(now)
+      expect(requeued).toEqual(await everything())
 
       // The search's state (its params) changes: read again.
       await test.prisma.$executeRaw`

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DeckSnapshot, Prisma, SimulationJob } from '../generated/prisma/client.js'
 import {
   type JobChunk,
-  LAB_CHUNKS_HELD,
+  LAB_HELD_BYTES,
   LAB_JOBS_HELD,
   LAB_ROWS_IDLE_MS,
   LabJobRowsCache,
@@ -374,25 +374,41 @@ describe('LabJobRowsCache (P-015)', () => {
     expect(db.reads.wholeJob).toBe(whole + 1)
   })
 
-  it(`holds at most ${LAB_CHUNKS_HELD} chunks: a bigger job is read every time, and others make room`, async () => {
+  it('holds what fits in its memory budget: a bigger job is read every time, and others make room', async () => {
+    expect(new LabJobRowsCache().maxBytes).toBe(LAB_HELD_BYTES)
     const db = new FakeDb()
     const cache = new LabJobRowsCache()
-    search(db, LAB_CHUNKS_HELD + 1, 1)
+    const small = search(db, 20, 1)
+    search(db, 20, 2)
+    // Job 3: as many chunks, but their per-game results are 50 times bigger.
+    for (const id of search(db, 20, 3)) db.updateChunk(id, { ...done(5), extra: { perGame: 'x'.repeat(20_000) } })
+    for (const id of small) db.updateChunk(id, done(5))
     await cache.read(1, db.source(), snapshotIds)
-    expect(cache.jobs).toBe(0)
-    await cache.read(1, db.source(), snapshotIds)
-    expect(db.reads.wholeJob).toBe(2)
-    search(db, LAB_CHUNKS_HELD - 10, 2)
-    search(db, 20, 3)
+    const one = cache.bytes
     await cache.read(2, db.source(), snapshotIds)
+    const two = cache.bytes - one
+    // The estimate follows what a row holds: job 1's results make it bigger than job 2, with the same chunks.
+    expect(one).toBeGreaterThan(two)
+    cache.maxBytes = one + two
     await cache.read(3, db.source(), snapshotIds)
-    // Both do not fit: the one viewed least recently (2) goes.
-    expect(cache.jobs).toBe(1)
-    expect(cache.chunks).toBe(20)
-    // A job too big to hold does not push out the ones held.
+    // Too big for the whole budget: not held, and the others stay.
+    expect(cache.jobs).toBe(2)
+    expect(cache.bytes).toBe(one + two)
+    await cache.read(3, db.source(), snapshotIds)
+    expect(db.reads.wholeJob).toBe(4)
+    // Job 1 again: it fits with job 2, whatever order they are viewed in.
     await cache.read(1, db.source(), snapshotIds)
-    expect(cache.jobs).toBe(1)
-    expect(cache.chunks).toBe(20)
+    expect(cache.jobs).toBe(2)
+    // A fourth job that fits alone but not with the others: the least recently viewed (2) goes.
+    search(db, 20, 4)
+    await cache.read(4, db.source(), snapshotIds)
+    expect(cache.jobs).toBe(2)
+    expect(cache.bytes).toBeLessThanOrEqual(cache.maxBytes)
+    const whole = db.reads.wholeJob
+    await cache.read(1, db.source(), snapshotIds)
+    expect(db.reads.wholeJob).toBe(whole)
+    await cache.read(2, db.source(), snapshotIds)
+    expect(db.reads.wholeJob).toBe(whole + 1)
   })
 
   it('a job not viewed for a while goes, also with nobody asking (a page closed)', async () => {

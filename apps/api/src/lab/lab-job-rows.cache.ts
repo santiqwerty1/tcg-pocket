@@ -17,10 +17,9 @@
  *   69.14): the same md5 is the same state, written by whoever.
  * A chunk's row is held whatever its status: one still queued or playing changes its version when it changes.
  *
- * Memory (R-008, 512 MB): a search like #125 (2,322 chunks, 88,956 games, 130 snapshots) takes ~4.8 MB here (~2 KB a
- * chunk with its `extra`). Only the last `LAB_JOBS_HELD` jobs viewed are held, with `LAB_CHUNKS_HELD` chunks among them
- * all (a bigger job is read every time, as before, without pushing the others out), and a job not viewed for
- * `LAB_ROWS_IDLE_MS` goes.
+ * Memory (R-008, 512 MB): a search like #125 (2,322 chunks, 88,956 games, 130 snapshots) takes ~5–7 MB here. Only the
+ * last `LAB_JOBS_HELD` jobs viewed are held, within `LAB_HELD_BYTES` among them all (a bigger job is read every time,
+ * as before, without pushing the others out), and a job not viewed for `LAB_ROWS_IDLE_MS` goes.
  */
 import { Injectable, type OnModuleDestroy } from '@nestjs/common'
 import { type DeckSnapshot, Prisma, type SimulationJob } from '../generated/prisma/client.js'
@@ -86,10 +85,16 @@ export interface LabJobRows {
   snapshots: readonly DeckSnapshot[]
 }
 
-/** Jobs held: the one on screen, the replay of its confirmation and another one or two. */
+/** Jobs held: the one on screen and another one or two. */
 export const LAB_JOBS_HELD = 3
-/** Chunks held among all of them (~2 KB each, R-008): about four searches like #125. */
-export const LAB_CHUNKS_HELD = 10_000
+/**
+ * What the jobs held may take among them all (R-008), estimated as twice the JSON of each row plus a little per row
+ * (`heldBytes`). Measured on Node 24: 2–2.9 KB of heap for a chunk of 38 games with its `extra` (~1.4 KB of JSON) and
+ * ~15 KB for one of 1,000 games (~10.5 KB of JSON). A search like #125 is ~7 MB by this estimate (4.6–6.8 MB
+ * measured); the biggest the limits allow (`EXPLORE_LIMITS`: 5,200 chunks of 500 games) would be ~60 MB, and is read
+ * whole every time, as before.
+ */
+export const LAB_HELD_BYTES = 32 * 1024 * 1024
 /** A job not viewed for this long goes. */
 export const LAB_ROWS_IDLE_MS = 15 * 60 * 1000
 /** Past this many new or changed chunks, the job's chunks are read whole instead of by id (bind parameters). */
@@ -98,12 +103,15 @@ const READ_WHOLE_FROM = 5_000
 interface Held<T> {
   version: string
   row: T
+  /** Its estimated heap (`heldBytes`). */
+  bytes: number
 }
 
 interface HeldJob {
-  params: { hash: string; value: Prisma.JsonValue }
+  params: { hash: string; value: Prisma.JsonValue; bytes: number }
   chunks: ReadonlyMap<number, Held<JobChunk>>
   snapshots: ReadonlyMap<number, Held<DeckSnapshot>>
+  bytes: number
   seenAt: number
 }
 
@@ -114,6 +122,8 @@ export class LabJobRowsCache implements OnModuleDestroy {
   private timer: NodeJS.Timeout | undefined
   /** The clock (tests move it). */
   now: () => number = () => Date.now()
+  /** The memory budget (tests lower it). */
+  maxBytes = LAB_HELD_BYTES
 
   /**
    * The rows of job `id` as the database has them now: the held ones it says did not change, and the rest read.
@@ -135,7 +145,8 @@ export class LabJobRowsCache implements OnModuleDestroy {
       return null
     }
     const hash = await source.paramsHash(id)
-    const params = hash !== null && held?.params.hash === hash ? held.params.value : deepFreeze(await source.params(id))
+    const kept = hash !== null && held?.params.hash === hash ? held.params : null
+    const params = kept ? kept.value : deepFreeze(await source.params(id))
     const ids = snapshotIds(params)
     if (ids === null) {
       this.held.delete(id)
@@ -155,8 +166,19 @@ export class LabJobRowsCache implements OnModuleDestroy {
             (versions) => source.staleSnapshots(wanted, versions),
             (changed) => source.snapshots(changed),
           )
-    if (hash !== null && chunks.size <= LAB_CHUNKS_HELD) {
-      this.hold(id, { params: { hash, value: params }, chunks, snapshots, seenAt: this.now() })
+    const paramsBytes = kept ? kept.bytes : heldBytes(params)
+    let bytes = paramsBytes
+    for (const item of chunks.values()) bytes += item.bytes
+    for (const item of snapshots.values()) bytes += item.bytes
+    // A job bigger than the whole budget is read every time, as before, and pushes nothing out.
+    if (hash !== null && bytes <= this.maxBytes) {
+      this.hold(id, {
+        params: { hash, value: params, bytes: paramsBytes },
+        chunks,
+        snapshots,
+        bytes,
+        seenAt: this.now(),
+      })
     } else {
       this.held.delete(id)
     }
@@ -184,6 +206,13 @@ export class LabJobRowsCache implements OnModuleDestroy {
     return total
   }
 
+  /** The estimated heap of what is held now. */
+  get bytes(): number {
+    let total = 0
+    for (const job of this.held.values()) total += job.bytes
+    return total
+  }
+
   onModuleDestroy(): void {
     if (this.timer) clearTimeout(this.timer)
     this.timer = undefined
@@ -194,7 +223,7 @@ export class LabJobRowsCache implements OnModuleDestroy {
     this.held.set(id, job)
     // The least recently viewed go first; the one just read alone fits (checked before holding it).
     for (const oldest of this.held.keys()) {
-      if (this.held.size <= LAB_JOBS_HELD && this.chunks <= LAB_CHUNKS_HELD) break
+      if (this.held.size <= LAB_JOBS_HELD && this.bytes <= this.maxBytes) break
       this.held.delete(oldest)
     }
     this.schedule()
@@ -247,10 +276,16 @@ async function refresh<T extends { id: number }>(
   for (const [key, version] of changed) {
     const row = fresh.get(key)
     // In the same snapshot it is always there; if not, it is not held (nor returned) rather than held under a guess.
-    if (row) now.set(key, { version, row: deepFreeze(row) })
+    if (row) now.set(key, { version, row: deepFreeze(row), bytes: heldBytes(row) })
     else now.delete(key)
   }
   return now
+}
+
+/** A row's heap, estimated: twice its JSON and a little more (`LAB_HELD_BYTES`). */
+function heldBytes(value: unknown): number {
+  const json = JSON.stringify(value, (_key, item: unknown) => (typeof item === 'bigint' ? item.toString() : item))
+  return 200 + 2 * (json?.length ?? 0)
 }
 
 /** Plain objects and arrays frozen all the way down (a Date or a Buffer is left as it is). */
