@@ -158,6 +158,7 @@ import { WorkerQueueService } from '../simulation/worker-queue.service.js'
 import { LIMITLESS_ATTRIBUTION, type Scope, TournamentsService } from '../tournaments/tournaments.service.js'
 import { bankShares, comparableScore } from './lab-blind-spots.js'
 import { type FrozenInputs, leftOutCards, whyCards } from './lab-explain.js'
+import { CHUNK_SELECT, type ChunkRow, type LabJobRows, LabJobRowsCache, prismaLabRows } from './lab-job-rows.cache.js'
 import type {
   CardLineView,
   LabBankView,
@@ -420,19 +421,6 @@ interface Bank {
   sources: SnapshotSource[]
 }
 
-interface ChunkRow {
-  idx: number
-  snapshotAId: number | null
-  snapshotBId: number | null
-  status: string
-  winsA: number | null
-  winsB: number | null
-  ties: number | null
-  firstGame: number
-  /** `perGame` (T-017 A2, H-010): each game by index, when the job asked for it. */
-  extra: Prisma.JsonValue | null
-}
-
 /** Review of #7: a capable worker counts if seen this recently; the sweep runs this often. */
 const PER_GAME_WORKER_WINDOW_MS = 30 * 60 * 1000
 const PER_GAME_SWEEP_MS = 5 * 60 * 1000
@@ -452,6 +440,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     private readonly matches: MatchesService,
     private readonly logger: PinoLogger,
     @Inject(ENV) private readonly env: Env,
+    private readonly jobRows: LabJobRowsCache,
   ) {
     this.logger.setContext(LabService.name)
     this.queue.onExploreRound((jobId) => this.advance(jobId))
@@ -2613,18 +2602,30 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     return out
   }
 
+  /**
+   * P-015 (R-014): the job, its chunks by idx and its lists' snapshots, in one REPEATABLE READ snapshot, reading only
+   * what changed since the last call (`LabJobRowsCache`). It waits for a connection as a plain query does (H-015,
+   * DECISIONES 69.15), and the first read of a big search (every chunk) has time to finish.
+   */
+  private jobRowsOf(id: number): Promise<LabJobRows | null> {
+    return this.prisma.$transaction((tx) => this.jobRows.read(id, prismaLabRows(tx), labSnapshotIds), {
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+      maxWait: 15_000,
+      timeout: 60_000,
+    })
+  }
+
   async job(rawId: string): Promise<LabJobView> {
     const id = parseNumericId(rawId, 'Simulación')
-    const job = await this.prisma.simulationJob.findUnique({ where: { id } })
-    if (!job) throw new NotFoundException(`Simulación ${rawId} no encontrada.`)
+    const read = await this.jobRowsOf(id)
+    if (!read) throw new NotFoundException(`Simulación ${rawId} no encontrada.`)
+    const { job, chunks, snapshots } = read
     const mode = labMode(job.params)
     if (!mode) throw new NotFoundException(`La simulación ${rawId} no es del laboratorio.`)
     const params = job.params as unknown as JobParams
     const lab = params.lab
-    const [summary, chunks, snapshots, scoped] = await Promise.all([
+    const [summary, scoped] = await Promise.all([
       this.simulations.progressOf(rawId),
-      this.prisma.simulationChunk.findMany({ where: { jobId: id }, select: CHUNK_SELECT }),
-      this.prisma.deckSnapshot.findMany({ where: { id: { in: [...params.sideA, ...params.sideB] } } }),
       this.tournaments.scopedDataset({ era: lab.era, format: lab.format }).catch(() => null),
     ])
     const index = this.catalog.requireIndex()
@@ -2876,18 +2877,6 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     }
   }
 }
-
-const CHUNK_SELECT = {
-  idx: true,
-  snapshotAId: true,
-  snapshotBId: true,
-  status: true,
-  winsA: true,
-  winsB: true,
-  ties: true,
-  firstGame: true,
-  extra: true,
-} as const
 
 function selectableEnergies(words: readonly string[]): SelectableEnergy[] {
   return words
@@ -3278,6 +3267,13 @@ function gamesOf(
 export function labBotLabel(players: readonly string[]): string {
   const [a, b] = players
   return a === b || b === undefined ? (a ?? '') : `${a} contra ${b}`
+}
+
+/** P-015: the snapshots the detail of a Laboratorio job reads (its lists and the rivals); null for any other job. */
+function labSnapshotIds(params: Prisma.JsonValue): number[] | null {
+  if (!labMode(params)) return null
+  const { sideA, sideB } = params as unknown as Partial<JobParams>
+  return [...(sideA ?? []), ...(sideB ?? [])]
 }
 
 /** The bank's rivals with their snapshot: explore jobs store it; tests find it by the list key among side B. */
