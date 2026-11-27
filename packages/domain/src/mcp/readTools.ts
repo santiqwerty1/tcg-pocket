@@ -349,7 +349,7 @@ export const MCP_READ_TOOLS = {
     name: 'events_check',
     title: 'Eventos con restricciones',
     description:
-      'Los eventos que Santi cargó con sus reglas de mazo (tipos, sin ex, rarezas, expansiones, cartas prohibidas). Sin «event», la lista. Con «event» (nombre o id): las reglas, qué mazos suyos cumplen (y qué rompe las reglas en los otros, con otra edición si la hay) y qué listas de torneo de la era cumplen y cuántas copias le faltan para armarlas.',
+      'Los eventos que Santi cargó con sus reglas de mazo (tipos, sin ex, rarezas, expansiones, ediciones de otras expansiones que el evento acepta igual, cartas prohibidas). Sin «event», la lista. Con «event» (nombre o id): las reglas, qué mazos suyos cumplen (y qué rompe las reglas en los otros, con otra edición si la hay) y qué listas de torneo de la era cumplen y cuántas copias le faltan para armarlas.',
     input: z.object({
       event: z.string().trim().min(1).max(120).optional().describe('Nombre (o parte) o id del evento'),
     }),

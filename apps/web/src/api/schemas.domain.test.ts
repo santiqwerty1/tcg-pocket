@@ -8,7 +8,9 @@ import {
   SELECTABLE_ENERGIES as DOMAIN_SELECTABLE,
   ENERGY_TYPES,
 } from '../../../../packages/domain/src/catalog/types'
+import { MAX_ALLOWED_EDITIONS as DOMAIN_MAX_ALLOWED } from '../../../../packages/domain/src/events/rules'
 import { DEFAULT_BOT as DOMAIN_DEFAULT_BOT } from '../../../../packages/domain/src/simulation/jobs'
+import { MAX_ALLOWED_EDITIONS } from '../lib/editionCodes'
 import { DEFAULT_BOT } from '../lib/simulation'
 import { cardTypeSchema, energyTypeSchema, evolutionTypeSchema, RARITIES, SELECTABLE_ENERGIES } from './schemas'
 
@@ -27,6 +29,10 @@ describe('the app’s copies of the domain lists (H-008)', () => {
       'tool',
       'stadium',
     ])
+  })
+
+  it('as many allowed editions in an event as the domain takes', () => {
+    expect(MAX_ALLOWED_EDITIONS).toBe(DOMAIN_MAX_ALLOWED)
   })
 
   it('the bot by default is the domain’s (D-029: g2 since 23/10/2026)', () => {

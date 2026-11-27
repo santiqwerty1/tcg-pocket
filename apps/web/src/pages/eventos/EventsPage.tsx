@@ -57,9 +57,9 @@ export function EventsPage() {
         }
       >
         <p className="text-sm text-muted-foreground">
-          Cargá las reglas de un evento del juego (tipos, sin ex, rarezas, expansiones, cartas prohibidas): la app te
-          dice qué mazos tuyos cumplen, qué listas de torneo cumplen y podés armar, y el Laboratorio busca variantes sin
-          romper las reglas.
+          Cargá las reglas de un evento del juego (tipos, sin ex, rarezas, expansiones, ediciones permitidas aparte,
+          cartas prohibidas): la app te dice qué mazos tuyos cumplen, qué listas de torneo cumplen y podés armar, y el
+          Laboratorio busca variantes sin romper las reglas.
         </p>
         {open ? (
           <div className="flex flex-col gap-4 rounded-lg border p-3">
