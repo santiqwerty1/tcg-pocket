@@ -16,6 +16,7 @@ import { MatchesModule } from '../matches/matches.module.js'
 import { SimulationModule } from '../simulation/simulation.controller.js'
 import { TournamentsModule } from '../tournaments/tournaments.controller.js'
 import { LabService, MAX_TEST_DECKS } from './lab.service.js'
+import { LabJobRowsCache } from './lab-job-rows.cache.js'
 import type { LabBankView, LabCoreView, LabJobsView, LabJobView } from './lab-views.js'
 
 const energies = z.array(z.enum(SELECTABLE_ENERGIES)).max(3).optional()
@@ -223,7 +224,7 @@ export class LabController {
 @Module({
   imports: [CatalogModule, TournamentsModule, SimulationModule, MatchesModule],
   controllers: [LabController],
-  providers: [LabService],
+  providers: [LabService, LabJobRowsCache],
   exports: [LabService],
 })
 export class LabModule {}
