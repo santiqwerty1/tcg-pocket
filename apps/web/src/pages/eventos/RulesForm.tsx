@@ -1,6 +1,10 @@
-/** The rules of an event (Fase 16): types, «al menos N», no ex, rarities, expansions and banned cards. */
+/**
+ * The rules of an event (Fase 16): types, «al menos N», no ex, rarities, expansions, the editions allowed outside
+ * them and banned cards.
+ */
 import { XIcon } from 'lucide-react'
-import { useExpansions } from '@/api/catalog'
+import { useEffect, useId, useState } from 'react'
+import { useCardsBatch, useExpansions } from '@/api/catalog'
 import { EVENT_TYPES, type EventRules, type EventType } from '@/api/schemas'
 import { CardSearch } from '@/components/CardSearch'
 import { Button } from '@/components/ui/button'
@@ -8,6 +12,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
+import { looksLikeEditionCode, MAX_ALLOWED_EDITIONS, parseEditionCodes } from '@/lib/editionCodes'
+import { useDebouncedValue } from '@/lib/useDebounce'
 import { cn } from '@/lib/utils'
 
 export const TYPE_ES: Record<EventType, string> = {
@@ -35,6 +42,106 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
     <Button type="button" size="sm" variant={active ? 'default' : 'outline'} aria-pressed={active} onClick={onClick}>
       {children}
     </Button>
+  )
+}
+
+/**
+ * The editions the event allows outside its expansions and rarities, typed or pasted as codes («P-A-1, A2b-111»),
+ * each one shown with its Spanish name from the catalog, or why it is not one. The text is the field's own (it keeps
+ * what is being typed); the rules get the codes as the catalog writes them.
+ */
+function AllowedEditions({
+  allow,
+  expansionIds,
+  editionRule,
+  onChange,
+}: {
+  allow: readonly string[] | undefined
+  expansionIds: readonly string[]
+  /** The event has an expansion or rarity rule (without one, the allowed editions change nothing). */
+  editionRule: boolean
+  onChange: (allow: string[]) => void
+}) {
+  const id = useId()
+  const [text, setText] = useState(() => (allow ?? []).join(', '))
+  const codes = allow ?? []
+  const shown = codes.slice(0, MAX_ALLOWED_EDITIONS)
+  // One lookup when the typing stops, of the codes that can be one.
+  const lookup = useDebouncedValue(shown.filter(looksLikeEditionCode).join(','), 300)
+  const looked = new Set(lookup ? lookup.split(',') : [])
+  const cards = useCardsBatch([...looked])
+  // Codes typed before the expansions arrived are written again as the catalog writes them («p-a-001» is P-A-1).
+  const expansionKey = expansionIds.join(',')
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the expansions arriving is the trigger, not the typing.
+  useEffect(() => {
+    if (!expansionKey || !text.trim()) return
+    const parsed = parseEditionCodes(text, expansionKey.split(','))
+    if (parsed.join(',') !== codes.join(',')) onChange(parsed)
+  }, [expansionKey])
+  return (
+    <fieldset className="flex min-w-0 flex-col gap-1.5">
+      <legend className="mb-1 text-sm font-medium">Ediciones permitidas aparte</legend>
+      <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+        Valen aunque sean de otra expansión o rareza (por ejemplo, Poción P-A-1 en un evento de Fusión Dual). Los tipos,
+        «sin ex» y las prohibidas les siguen valiendo. Códigos separados por comas o espacios.
+      </p>
+      <Textarea
+        aria-label="Ediciones permitidas aparte"
+        aria-describedby={`${id}-hint`}
+        rows={2}
+        placeholder="P-A-1, P-A-5, A2b-111"
+        value={text}
+        onChange={(event) => {
+          setText(event.target.value)
+          onChange(parseEditionCodes(event.target.value, expansionIds))
+        }}
+      />
+      {shown.length > 0 ? (
+        <ul className="flex flex-wrap gap-1.5" aria-label="Ediciones leídas">
+          {shown.map((code) => {
+            const card = cards.data?.get(code)
+            const problem = !looksLikeEditionCode(code)
+              ? 'no es un código de carta'
+              : !card && looked.has(code) && cards.isSuccess
+                ? 'no está en el catálogo'
+                : null
+            return (
+              <li
+                key={code}
+                className={cn(
+                  'rounded-md border px-2 py-1 text-sm',
+                  problem && 'border-destructive/60 text-destructive',
+                )}
+              >
+                <span className="font-medium tabular">{code}</span>
+                {card ? (
+                  <>
+                    {' '}
+                    {card.nameEs} <span className="text-muted-foreground">· {card.rarity}</span>
+                  </>
+                ) : problem ? (
+                  `: ${problem}`
+                ) : (
+                  <span className="text-muted-foreground"> …</span>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      ) : null}
+      {codes.length > MAX_ALLOWED_EDITIONS ? (
+        <p className="text-xs text-destructive">
+          Son {codes.length}: el evento acepta hasta {MAX_ALLOWED_EDITIONS} ediciones aparte.
+        </p>
+      ) : null}
+      {codes.length > 0 && !editionRule ? (
+        <p className="text-xs text-destructive">
+          {codes.length === 1
+            ? 'Necesita una regla de rarezas o de expansiones: sin ella cualquier edición vale, y no se puede guardar.'
+            : 'Necesitan una regla de rarezas o de expansiones: sin ella cualquier edición vale, y no se pueden guardar.'}
+        </p>
+      ) : null}
+    </fieldset>
   )
 }
 
@@ -143,6 +250,12 @@ export function RulesForm({
           ))}
         </div>
       </details>
+      <AllowedEditions
+        allow={rules.allow}
+        expansionIds={(expansions.data ?? []).map((expansion) => expansion.id)}
+        editionRule={Boolean(rules.expansions || rules.rarities)}
+        onChange={(allow) => set({ allow: allow.length > 0 ? allow : undefined })}
+      />
       <fieldset className="flex min-w-0 flex-col gap-1.5">
         <legend className="mb-1 text-sm font-medium">Cartas prohibidas</legend>
         <div className="flex flex-wrap gap-1.5">

@@ -259,6 +259,7 @@ describe('MCP endpoint (e2e)', () => {
         couponSavesNow: number | null
         cards: { cardId: string; card: string; owned: number; needed?: number; notOwnedInAnyPrint?: boolean }[]
       }[]
+      notes: string[]
     }
     // The goal is two copies of each print: A vol. 7 lacks a second Exeggcute and both Rayquaza ex.
     expect(promo.goalCopiesPerPrint).toBe(2)
@@ -291,6 +292,12 @@ describe('MCP endpoint (e2e)', () => {
       expect(promo.pick).toBeNull()
       expect(promo.pickReason).toBeNull()
     }
+    // C vol. 1 (27/11): P-C 2–9, none of them in the export of 6/10.
+    const c1 = promo.volumes.find((row) => row.volume === 'C vol. 1')
+    expect(c1?.cards.map((card) => card.cardId)).toEqual(Array.from({ length: 8 }, (_, i) => `P-C-${i + 2}`))
+    expect(c1).toMatchObject({ missingCopies: '16 de 16', chanceMissingPrintPercent: 100 })
+    // It has no battle of its own: the notes say so to sessions that started with the old description.
+    expect(promo.notes.some((note) => note.startsWith('C vol. 1 no tiene una batalla propia'))).toBe(true)
     // B vol. 12 had two or more of each on 6/10: left out unless asked for.
     expect(promo.volumes.some((row) => row.volume === 'B vol. 12')).toBe(false)
     const all = (await call(client, 'packs_promo', { all: true })).structuredContent as typeof promo
@@ -298,12 +305,12 @@ describe('MCP endpoint (e2e)', () => {
       missingCopies: '0 de 10',
       couponSavesNow: null,
     })
-    expect(all.volumes).toHaveLength(26)
+    expect(all.volumes).toHaveLength(27)
 
     const http = await test.http().get('/api/promo-packs').set('Cookie', cookie)
     expect(http.status).toBe(200)
     expect(http.body.goal).toBe(2)
-    expect(http.body.volumes).toHaveLength(26)
+    expect(http.body.volumes).toHaveLength(27)
     expect(http.body.best.map((id: string) => `${id.slice(0, 1)} vol. ${id.slice(1)}`)).toEqual(promo.best)
     if (http.body.event) expect(http.body.best).toContain(http.body.pick)
     else expect(http.body.pick).toBeNull()

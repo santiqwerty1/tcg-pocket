@@ -2077,11 +2077,12 @@ ${MCP_CHAT_INSTRUCTIONS}`
         `Objetivo (Santi, 2/11): ${plan.goal} copias de cada edición. missingCopies: copias que le faltan al volumen para eso; needed: las que le faltan a esa edición.`,
         plan.event
           ? 'Orden (Santi, 30/10): primero la chance de una carta que le falta a un mazo, después la de una carta que no tiene en ninguna versión, después la de una edición de la que le faltan copias; pick sale al azar entre best (los empatados en las tres) en cada consulta.'
-          : 'No hay un evento de promos en curso: no hay batallas para ganar. No recomiendes ninguna; solo decí qué le falta de cada volumen.',
+          : 'No hay un evento con batallas de promoción en curso: no hay ninguna para ganar. No recomiendes ninguna; solo decí qué le falta de cada volumen.',
         `chanceMissingPrintPercent: chance de una edición de la que tiene menos de ${plan.goal} copias (puede ser otra versión de una carta que ya tiene). chanceNotOwnedPercent: de una carta que no tiene en ninguna versión. owned: copias de esa edición.`,
         'Cupones: si va a completar un volumen, rinden más cuando le queda una sola edición por debajo del objetivo: ahí cada cupón ahorra ~n victorias, también el de su segunda copia. Gastado antes ahorra couponSavesNow (en la edición donde más ahorra). Para una carta puntual (la de un mazo, por ejemplo) un cupón ahorra ~n victorias. Antes del cierre del evento, canjearlos igual. Solo si la tienda tiene esa carta.',
         'promoCoupons: los cupones que Santi tiene, por evento, según la última importación de pokemon-zone (los del juego a esa hora; null si nunca importó). activeEvent: los del evento en curso, que son los que se canjean en su tienda.',
         `winsToComplete: victorias esperadas para tener ${plan.goal} copias de cada edición del volumen. En totals, missing son las ediciones por debajo del objetivo y copiesMissing las copias que les faltan.`,
+        'C vol. 1 no tiene una batalla propia: sus sobres salen de «Partidas limitadas de Fusión Dual» (del 18/11 al 2/12/2026), de las misiones diarias, de ganar 3 partidas y, a veces, de una partida ganada. Para él, winsToComplete y couponSavesNow cuentan sobres, no victorias, y su tienda pide de 1 a 9 cupones por carta: no lo recomiendes como batalla ni le apliques el consejo de los cupones.',
       ],
     }
   }

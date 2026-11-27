@@ -12,6 +12,7 @@ import {
   type EventRules,
   eventRulesSchema,
   listsAgainstCollection,
+  normalizeEventRules,
   type WinRate,
 } from '@tcg/domain'
 import { CatalogService } from '../catalog/catalog.service.js'
@@ -89,16 +90,11 @@ export class EventsService {
     }
   }
 
+  /** The rules to store: banned cards as functional cards, known expansions and allowed editions (the domain's). */
   private assertCards(rules: EventRules, index: CatalogIndex): EventRules {
-    const banned = rules.banned?.map((id) => index.cardById(id)?.functionalGroupId ?? index.groupById(id)?.id ?? null)
-    if (banned?.some((id) => id === null)) {
-      throw new BadRequestException({ code: 'validation', message: 'Una carta prohibida no existe en el catálogo.' })
-    }
-    const expansions = rules.expansions?.filter((id) => !index.expansionById(id))
-    if (expansions && expansions.length > 0) {
-      throw new BadRequestException({ code: 'validation', message: `Expansión desconocida: ${expansions.join(', ')}.` })
-    }
-    return banned ? { ...rules, banned: [...new Set(banned as string[])] } : rules
+    const normalized = normalizeEventRules(rules, index)
+    if (!normalized.ok) throw new BadRequestException({ code: 'validation', message: normalized.message })
+    return normalized.rules
   }
 
   async list(): Promise<EventView[]> {

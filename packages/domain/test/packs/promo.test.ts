@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { CollectionAdjustment } from '../../src/collection/adjustments.js'
+import { parseTrackerCsv } from '../../src/collection/csv.js'
 import type { StockQuantities } from '../../src/collection/stock.js'
 import type { TradeDeck } from '../../src/collection/trades.js'
 import {
@@ -15,7 +17,7 @@ import {
   winsToComplete,
 } from '../../src/packs/promo.js'
 import { realCsvNormalized } from '../helpers/collectionCsv.js'
-import { catalogIndex } from '../helpers/loadFixtures.js'
+import { COLLECTION_CSV_2026_11_11_PATH, catalogIndex } from '../helpers/loadFixtures.js'
 
 const index = catalogIndex()
 const stock = () => realCsvNormalized().units
@@ -32,19 +34,29 @@ const EVENT: PromoEvent = {
   volumes: [],
 }
 
+/** The rows of the export of 11/11/2026 (tracker `9fafc07`, with P-C), by id. */
+const exportOf1111 = new Map(
+  parseTrackerCsv(readFileSync(COLLECTION_CSV_2026_11_11_PATH)).rows.map((row) => [row.id, row]),
+)
+
 describe('promo volumes', () => {
-  it('are the 13 volumes of each series, 5 cards each (7 in A vol. 9), each promo in one volume only', () => {
+  it('are the 13 volumes of A and of B, then C vol. 1; 5 cards each (7 in A vol. 9, 8 in C vol. 1), each promo in one volume only', () => {
     expect(PROMO_VOLUMES.map((promo) => promo.id)).toEqual([
       ...Array.from({ length: 13 }, (_, i) => `A${i + 1}`),
       ...Array.from({ length: 13 }, (_, i) => `B${i + 1}`),
+      'C1',
     ])
-    for (const promo of PROMO_VOLUMES) expect(promo.cardIds).toHaveLength(promo.id === 'A9' ? 7 : 5)
+    const sizes: Record<string, number> = { A9: 7, C1: 8 }
+    for (const promo of PROMO_VOLUMES) expect(promo.cardIds, promo.id).toHaveLength(sizes[promo.id] ?? 5)
+    expect(byId('C1')).toMatchObject({ series: 'C', volume: 1 })
     const all = PROMO_VOLUMES.flatMap((promo) => promo.cardIds)
     expect(new Set(all).size).toBe(all.length)
   })
 
-  it('name promo prints of their own series that the catalog has', () => {
-    for (const promo of PROMO_VOLUMES) {
+  it('name promo prints of their own series that the catalog has (A and B: the fixture catalog has no P-C)', () => {
+    // The catalog fixture is tracker 3ab58f1 (1/10/2026), before C1: series C is checked against the 11/11 export.
+    expect(index.cardById('P-C-2')).toBeUndefined()
+    for (const promo of PROMO_VOLUMES.filter((item) => item.series !== 'C')) {
       for (const cardId of promo.cardIds) {
         const card = index.cardById(cardId)
         expect(card, cardId).toBeDefined()
@@ -71,6 +83,35 @@ describe('promo volumes', () => {
     expect(names('B13')).toEqual(['Falinks', 'Gible', 'Gabite', 'Mega Garchomp ex', 'Delcatty'])
   })
 
+  it('every print of a volume is a promo of its series in the export of 11/11/2026', () => {
+    for (const promo of PROMO_VOLUMES) {
+      for (const cardId of promo.cardIds) {
+        expect(exportOf1111.get(cardId), cardId).toMatchObject({ rarity: 'P', expansion: `P-${promo.series}` })
+      }
+    }
+  })
+
+  it('C vol. 1 is P-C 2–9 (Serebii and WikiDex, 27/11): the Mega-Mewtwo Y ex event, with one Trainer; not Pikachu nor P-C 10–13', () => {
+    const names = byId('C1').cardIds.map((cardId) => exportOf1111.get(cardId)?.cardName)
+    expect(names).toEqual([
+      'Mega-Mewtwo Y ex',
+      'Deoxys',
+      'Inkay',
+      'Malamar',
+      'Cosmog',
+      'Cosmoem',
+      'Lunala',
+      'Conversor Genoma Y',
+    ])
+    // The export has P-C 1–13: Pikachu and P-C 10–13 are promos of the series in no known volume.
+    const volumes = new Set(PROMO_VOLUMES.flatMap((promo) => promo.cardIds))
+    for (const cardId of ['P-C-1', 'P-C-10', 'P-C-11', 'P-C-12', 'P-C-13']) {
+      expect(exportOf1111.get(cardId), cardId).toMatchObject({ rarity: 'P', expansion: 'P-C' })
+      expect(volumes.has(cardId), cardId).toBe(false)
+    }
+    expect(exportOf1111.get('P-C-1')?.cardName).toBe('Pikachu')
+  })
+
   it('the event lists volumes that exist', () => {
     const ids = new Set(PROMO_VOLUMES.map((promo) => promo.id))
     for (const event of PROMO_EVENTS) for (const id of event.volumes) expect(ids.has(id), id).toBe(true)
@@ -86,6 +127,13 @@ describe('activePromoEvent', () => {
     // The last minute counts entirely: the battles close at 04:00 in Buenos Aires.
     expect(activePromoEvent(new Date('2026-11-13T06:59:59.500Z'))?.id).toBe('botin-bis-promo-2026')
     expect(activePromoEvent(new Date('2026-11-13T07:00:00Z'))).toBeNull()
+  })
+
+  it('C vol. 1 has no battle event: the Dual Fusion limited battles (18/11 – 2/12/2026) give its packs by missions', () => {
+    expect(PROMO_EVENTS.some((event) => event.volumes.includes('C1'))).toBe(false)
+    expect(activePromoEvent(new Date('2026-11-18T06:00:00Z'))).toBeNull()
+    expect(activePromoEvent(new Date('2026-11-27T12:00:00Z'))).toBeNull()
+    expect(activePromoEvent(new Date('2026-12-02T05:59:59Z'))).toBeNull()
   })
 })
 
@@ -285,13 +333,34 @@ describe('promoPlan on the export of 2026-10-06', () => {
     expect(plan.totals.cards).toBe(70)
   })
 
-  it('without an event there is no battle: no best and no pick, only the ranking of the 26 volumes', () => {
+  it('C vol. 1 has 8 cards, none in the fixture catalog: 16 copies to go, every win a new card', () => {
+    const plan = promoPlan({ index, stock: stock(), now: AFTER })
+    const c1 = plan.volumes.find((status) => status.id === 'C1')
+    expect(c1).toMatchObject({
+      series: 'C',
+      volume: 1,
+      missing: 8,
+      copiesMissing: 16,
+      chanceMissing: 1,
+      chanceNew: 1,
+      chanceDecks: 0,
+      reason: 'new',
+      couponSavesNow: 1,
+      inEvent: false,
+    })
+    expect(c1?.cards.map((card) => card.cardId)).toEqual(byId('C1').cardIds)
+    expect(c1?.cards.every((card) => !card.inCatalog && card.owned === 0 && card.needed === 2)).toBe(true)
+    expect(c1?.winsToComplete).toBeCloseTo(poissonWins(8, Array(8).fill(2)), 6)
+  })
+
+  it('without an event there is no battle: no best and no pick, only the ranking of the 27 volumes', () => {
     const plan = promoPlan({ index, stock: stock(), now: AFTER, random: () => 0 })
     expect(plan.event).toBeNull()
     expect(plan.best).toEqual([])
     expect(plan.pick).toBeNull()
     expect(plan.volumes.some((status) => status.inEvent)).toBe(false)
-    expect(plan.totals.volumes).toBe(26)
+    expect(plan.totals.volumes).toBe(27)
+    expect(plan.totals.cards).toBe(13 * 5 + 2 + 13 * 5 + 8)
     // Still ranked tier by tier.
     const key = (status: PromoVolumeStatus) => [status.chanceDecks, status.chanceNew, status.chanceMissing]
     for (let i = 1; i < plan.volumes.length; i++) {

@@ -2749,6 +2749,8 @@ export const eventRulesSchema = z.object({
   noEx: z.boolean().optional(),
   rarities: z.array(z.string()).optional(),
   expansions: z.array(z.string()).optional(),
+  /** Editions that meet `rarities` and `expansions` though they are outside them (the other rules still apply). */
+  allow: z.array(z.string()).optional(),
   banned: z.array(z.string()).optional(),
 })
 export type EventRules = z.infer<typeof eventRulesSchema>

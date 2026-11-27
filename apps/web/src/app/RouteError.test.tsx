@@ -15,12 +15,13 @@ describe('isChunkLoadError', () => {
   })
 })
 
+function Broken(): never {
+  throw new Error('se rompió')
+}
+
 describe('route errors', () => {
   it('shows the error of a screen in Spanish, with a way out', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    function Broken(): never {
-      throw new Error('se rompió')
-    }
     const router = createMemoryRouter(
       [{ path: '/', errorElement: <RouteError />, children: [{ index: true, Component: Broken }] }],
       { initialEntries: ['/'] },

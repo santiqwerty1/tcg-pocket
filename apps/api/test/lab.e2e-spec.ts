@@ -12,12 +12,15 @@ import {
   poolForZone,
   type SelectableEnergy,
   scoreDifference,
+  summarizeAnalysisGames,
   usableWith,
 } from '@tcg/domain'
 import { CatalogService } from '../src/catalog/catalog.service.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
+import { Prisma } from '../src/generated/prisma/client.js'
 import { LabService } from '../src/lab/lab.service.js'
+import { LabJobRowsCache } from '../src/lab/lab-job-rows.cache.js'
 import { PrismaService } from '../src/prisma/prisma.service.js'
 import { EngineStatusService } from '../src/simulation/snapshots.service.js'
 import { WorkerQueueService } from '../src/simulation/worker-queue.service.js'
@@ -2121,6 +2124,74 @@ describe('laboratorio (e2e)', () => {
     await post(`/api/simulations/${id}/cancel`)
   }, 60_000)
 
+  it('allowed editions (event 2): a card to try comes in with the edition the event allows outside its expansions', async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 3,
+      maxRounds: 1,
+      confirmGames: 0,
+      verifyGames: 0,
+      pool: 'collection',
+      probe: false,
+      byWeight: false,
+      confirmBot: null,
+    }
+    const index = test.app.get(CatalogService).requireIndex()
+    const start = (await get(`/api/decks/${deckIds[1]}`)).body as { cards: { card: { id: string } }[] }
+    // Only the expansions the list plays: it complies as it is.
+    const expansions = [...new Set(start.cards.map((entry) => index.cardById(entry.card.id)?.expansionId ?? ''))]
+    // Giovanni: every edition of it outside them, and A4b-334 is not the one shown (the Laboratorio's before).
+    const giovanni = index.cardsOfGroup('A1-223')
+    expect(giovanni.map((card) => card.id)).toContain('A4b-334')
+    expect(giovanni.every((card) => !expansions.includes(card.expansionId))).toBe(true)
+    expect(index.groupById('A1-223')?.displayCardId).not.toBe('A4b-334')
+    const ask = (eventId: string) =>
+      post('/api/lab/explore').send({
+        deck: { deckId: deckIds[1] },
+        size: 3,
+        config,
+        include: ['A1-223'],
+        dryRun: true,
+        eventId,
+      })
+    const only = await post('/api/events').send({ name: 'Solo lo de la lista', rules: { expansions } })
+    expect(only.status).toBe(201)
+    const refused = await ask(only.body.id)
+    expect(refused.status).toBe(400)
+    expect(refused.body.error.message).toMatch(
+      /^No se puede probar Giovanni.*: el evento «Solo lo de la lista» no la permite\.$/,
+    )
+    const allowing = await post('/api/events').send({
+      name: 'Con Giovanni',
+      rules: { expansions, allow: ['A4b-334'] },
+    })
+    expect(allowing.status).toBe(201)
+    const plan = await ask(allowing.body.id)
+    expect(plan.status).toBe(200)
+    const added = (plan.body.firstRound as { add: { cardId: string }[] }[]).flatMap((variant) => variant.add)
+    const giovannis = added.filter((line) => index.cardById(line.cardId)?.functionalGroupId === 'A1-223')
+    expect(giovannis.every((line) => line.cardId === 'A4b-334')).toBe(true)
+    // An engine that does not play the allowed edition: refused, saying so.
+    const engine = test.app.get(EngineStatusService)
+    const real = await engine.status()
+    const allowedEngineId = index.cardById('A4b-334')?.engineId
+    const spy = vi
+      .spyOn(engine, 'status')
+      .mockResolvedValue(((engineId: string) => (engineId === allowedEngineId ? false : real(engineId))) as typeof real)
+    try {
+      const unplayed = await ask(allowing.body.id)
+      expect(unplayed.status).toBe(400)
+      expect(unplayed.body.error.message).toMatch(
+        /^No se puede probar Giovanni.*: el motor no juega las ediciones que permite el evento «Con Giovanni»\.$/,
+      )
+    } finally {
+      spy.mockRestore()
+    }
+    for (const event of [only, allowing]) {
+      expect((await test.http().delete(`/api/events/${event.body.id}`).set('Cookie', cookie)).status).toBe(204)
+    }
+  })
+
   it('T-017 E4: a list added to a search in play plays its next round', async () => {
     const config = {
       gamesPerRival: 10,
@@ -3297,4 +3368,195 @@ describe('laboratorio (e2e)', () => {
       await test.prisma.simulationJob.deleteMany({ where: { id: { in: [searching.id, confirming.id] } } })
     }
   })
+
+  it('P-015: a search’s detail reads only what changed, and shows what a read of everything shows', async () => {
+    // A search played whole with per-game results, as a worker 0.2.5+ plays it (the API adds `analysisGames`).
+    const capable = { ...hello, workerId: 'worker-lab-p015', version: '0.2.5', engineFeatures: ['perGame', 'gBots'] }
+    await bearer('post', '/api/worker/claim').send({ ...capable, engineRev: test.env.engineRev })
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 2,
+      maxRounds: 1,
+      patience: 3,
+      confirmGames: 20,
+      verifyGames: 20,
+      pool: 'all',
+      byWeight: false,
+      confirmBot: null,
+      race: false,
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9400 })
+    expect(created.status).toBe(200)
+    const id = created.body.id as number
+    const params = (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).params as {
+      sideB: number[]
+      lab: { explore: { base: number; rounds: { candidates: number[] }[] } }
+    }
+    const base = params.lab.explore.base
+    const winner = params.lab.explore.rounds[0]?.candidates[0]
+    /** Game i: the first `wins` go to A; turns of 6 to 25, so the histogram has many bins (as real games do). */
+    const perGame = (games: number, wins: number) => {
+      const each = (f: (i: number) => string) => Array.from({ length: games }, (_, i) => f(i)).join('')
+      return {
+        winners: each((i) => (i < wins ? 'A' : 'B')),
+        starters: each((i) => (i % 2 === 0 ? 'A' : 'B')),
+        endings: each(() => 'P'),
+        turns: Array.from({ length: games }, (_, i) => 6 + ((i * 7) % 20)),
+        stagesA: each(() => '2'),
+        stagesB: each(() => '1'),
+      }
+    }
+    for (;;) {
+      const claim = await bearer('post', '/api/worker/claim').send({ ...capable, engineRev: test.env.engineRev })
+      const chunk = claim.body.chunk as Structured | null
+      if (!chunk) break
+      const row = await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: chunk.chunkId as number } })
+      const winsA = row.snapshotAId === winner ? Math.round(row.games * 0.9) : row.games / 2
+      const result = await bearer('put', `/api/worker/chunks/${row.id}/result`).send({
+        workerId: capable.workerId,
+        engineRev: test.env.engineRev,
+        winsA,
+        winsB: row.games - winsA,
+        ties: 0,
+        games: row.games,
+        durationMs: 100,
+        ...(chunk.perGame ? { extra: { perGame: perGame(row.games, winsA) } } : {}),
+      })
+      expect(result.body).toEqual({ accepted: true })
+    }
+    expect((await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).status).toBe('done')
+    // As big as #125 (2,322 chunks of 38 games on average): the rest past its rounds, so its scores stay the same.
+    const played = await test.prisma.simulationChunk.findMany({ where: { jobId: id }, orderBy: { idx: 'asc' } })
+    const from = (played.at(-1)?.idx ?? 0) + 1
+    const rival = params.sideB[0] as number
+    await test.prisma.simulationChunk.createMany({
+      data: Array.from({ length: 2300 }, (_, i) => {
+        const results = perGame(38, 19)
+        return {
+          jobId: id,
+          idx: from + i,
+          snapshotAId: base,
+          snapshotBId: rival,
+          games: 38,
+          gamesDone: 38,
+          seed: BigInt(9_400_000 + i),
+          status: 'done' as const,
+          winsA: 19,
+          winsB: 19,
+          ties: 0,
+          extra: { perGame: results, analysisGames: summarizeAnalysisGames(results) },
+        }
+      }),
+    })
+    const extra = await test.prisma.simulationChunk.findMany({
+      where: { jobId: id, idx: { gte: from } },
+      select: { id: true },
+      orderBy: { idx: 'asc' },
+    })
+
+    const rows = test.app.get(LabJobRowsCache)
+    const minute = test.app.get(SchedulerRegistry).getCronJob('catalog-memory')
+    minute.stop()
+    const counter = countDatabaseBytes(test.app.get(PrismaService).pool)
+    const view = async () => {
+      const response = await get(`/api/lab/jobs/${id}`)
+      expect(response.status).toBe(200)
+      return response.body as Structured
+    }
+    const measured = async () => {
+      const before = counter.bytes()
+      const body = await view()
+      return { body, bytes: counter.bytes() - before }
+    }
+    /** What a read of everything shows now, with nothing held (as before P-015); it is held again after it. */
+    const everything = async () => {
+      rows.clear()
+      return view()
+    }
+    let apart: number | null = null
+    try {
+      rows.clear()
+      const cold = await measured()
+      const warm = await measured()
+      const again = await measured()
+      console.info(
+        `P-015: detail of a search of ${played.length + extra.length} chunks: ${cold.bytes} bytes from the database with nothing held, ${warm.bytes} and ${again.bytes} after`,
+      )
+      expect(warm.body).toEqual(cold.body)
+      expect(again.body).toEqual(cold.body)
+      expect(rows.jobs).toBe(1)
+      expect(rows.chunks).toBe(played.length + extra.length)
+      expect(cold.bytes).toBeGreaterThan(1_500_000)
+      expect(warm.bytes).toBeLessThan(60_000)
+      expect(again.bytes).toBeLessThan(60_000)
+
+      // A row written again with the same values has a new version (xmin): read again, and nothing moves.
+      const [first, second] = played
+      if (!first || !second) throw new Error('no chunks')
+      await test.prisma.$executeRaw`UPDATE simulation_chunks SET wins_a = wins_a WHERE id = ${first.id}`
+      expect(await view()).toEqual(cold.body)
+
+      // A result that moves the scores: the view moves as a read of everything says.
+      const mine = played.find((chunk) => chunk.snapshotAId === base && chunk.idx < from) ?? first
+      await test.prisma.simulationChunk.update({
+        where: { id: mine.id },
+        data: { winsA: 0, winsB: mine.games, extra: Prisma.DbNull },
+      })
+      const changed = await view()
+      expect(changed).not.toEqual(cold.body)
+      expect(changed).toEqual(await everything())
+
+      // An engine change moves chunks to a job of their own, «Frenar» deletes others and a round adds new ones, inside
+      // the rounds too (so the view moves); «Reintentar lo que falló» takes a failed one back to the queue. What is held
+      // is counted before any read of everything (review: a gone chunk past the rounds moves no number).
+      const [inRound, inRoundGone] = played.filter((chunk) => chunk.id !== mine.id && chunk.id !== second.id)
+      if (!inRound || !inRoundGone) throw new Error('no chunks')
+      const kept = await test.prisma.simulationJob.create({
+        data: {
+          kind: 'explore',
+          status: 'cancelled',
+          label: 'Lo jugado con el motor viejo',
+          params: { sideA: [], sideB: [], replacedBy: id },
+          engineRev: test.env.engineRev,
+          players: ['g2', 'g2'],
+          gamesPerPair: 10,
+          baseSeed: 1n,
+          totalGames: 50 * 38,
+        },
+        select: { id: true },
+      })
+      apart = kept.id
+      await test.prisma.simulationChunk.updateMany({
+        where: { id: { in: [inRound.id, ...extra.slice(0, 50).map((chunk) => chunk.id)] } },
+        data: { jobId: kept.id },
+      })
+      await test.prisma.simulationChunk.deleteMany({
+        where: { id: { in: [inRoundGone.id, ...extra.slice(50, 100).map((chunk) => chunk.id)] } },
+      })
+      await test.prisma.simulationChunk.create({
+        data: { jobId: id, idx: from + 5000, snapshotAId: base, snapshotBId: rival, games: 38, seed: 1n },
+      })
+      await test.prisma.simulationChunk.update({ where: { id: second.id }, data: { status: 'failed' } })
+      const now = played.length + extra.length - 102 + 1
+      const moved = await view()
+      expect(rows.chunks).toBe(now)
+      expect(moved).not.toEqual(changed)
+      expect(moved).toEqual(await everything())
+      await test.prisma.simulationChunk.update({ where: { id: second.id }, data: { status: 'queued' } })
+      const requeued = await view()
+      expect(rows.chunks).toBe(now)
+      expect(requeued).toEqual(await everything())
+
+      // The search's state (its params) changes: read again.
+      await test.prisma.$executeRaw`
+        UPDATE simulation_jobs SET params = jsonb_set(params, '{lab,explore,stopRequested}', 'true') WHERE id = ${id}`
+      const stopped = await view()
+      expect((stopped.explore as { stopRequested: boolean }).stopRequested).toBe(true)
+      expect(stopped).toEqual(await everything())
+    } finally {
+      counter.stop()
+      minute.start()
+      await test.prisma.simulationJob.deleteMany({ where: { id: { in: [id, ...(apart === null ? [] : [apart])] } } })
+    }
+  }, 120_000)
 })
