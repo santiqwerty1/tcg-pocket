@@ -476,6 +476,73 @@ html body[data-scroll-locked] {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * The type of D's figures and of what goes around them, one utility per role. Each one writes its own line height
+ * (the body's is 1.45): the height of a number over its n, of a row and of a label comes from here, as D measures
+ * them. The colour is the piece's. Nothing is under 13 px, and no figure under 14 px (app/tokens.test.ts).
+ */
+/* What names a number: «SEMANA», «% VICT.». */
+@utility type-label {
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+/* A percentage or a count, at the four sizes it is drawn: alone over its foot, in a deck's summary, in a cell of a
+   table, in a deck's header. Tabular digits, so a column of them lines up. */
+@utility type-figure-28 {
+  font-family: var(--font-heading);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.005em;
+  font-variant-numeric: tabular-nums;
+}
+@utility type-figure-22 {
+  font-family: var(--font-heading);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+@utility type-figure-17 {
+  font-family: var(--font-heading);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+@utility type-figure-15 {
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+/* The n beside a figure, and «sin datos» where the figure would be. */
+@utility type-n {
+  font-family: var(--font-heading);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.15;
+}
+/* The name of a row. */
+@utility type-row {
+  font-family: var(--font-heading);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.15;
+}
+/* The second line of a row and the reason under an answer: running text. */
+@utility type-sub {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
 /* Fase 22: the board's animations (damage and KO floating up, the turn banner, targets that can be touched). */
 @keyframes board-float {
   0% {

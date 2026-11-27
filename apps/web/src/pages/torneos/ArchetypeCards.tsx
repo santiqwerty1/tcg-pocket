@@ -25,7 +25,7 @@ function Side({ label, row }: { label: string; row: RecordRow }) {
         {row.rate ? formatRateValue(row.rate.value) : 'sin datos'}
       </span>
       {row.rate ? <RateDetails record={row.record} rate={row.rate} /> : null}
-      {row.rate?.orientative ? <OrientativeBadge /> : null}
+      {row.rate?.orientative ? <OrientativeBadge kind={row.rate.sampleKind} /> : null}
     </div>
   )
 }
@@ -35,7 +35,8 @@ function Difference({ difference }: { difference: RateDifference | null }) {
   return (
     <span className="flex flex-wrap items-center gap-1.5">
       {difference.text}
-      {difference.orientative ? <OrientativeBadge /> : null}
+      {/* The difference is «orientativo» by the lists of its smaller side (the domain's archetypeCards). */}
+      {difference.orientative ? <OrientativeBadge kind="lists" /> : null}
       {difference.clear ? (
         <Badge variant={difference.value > 0 ? 'default' : 'destructive'}>
           {difference.value > 0 ? 'rinde más' : 'rinde menos'}

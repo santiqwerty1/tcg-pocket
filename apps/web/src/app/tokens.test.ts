@@ -1030,3 +1030,302 @@ describe('the fonts', () => {
     expect(config).toMatch(/navigateFallbackDenylist:\s*\[[^\]]*\/\^\\\/licenses\\\/\//)
   })
 })
+
+describe('the type of the figures and of what goes around them', () => {
+  /** The `type-*` utilities of the stylesheet, in the order they are written. */
+  const ROLES = [...CSS.matchAll(/@utility (type-[\w-]+) \{/g)].map((match) => match[1] ?? '')
+  const role = (name: string) => block(`@utility ${name}`)
+  /** A size of the stylesheet in CSS pixels (a rem is 16 px: nothing changes the size of the root). */
+  function pixels(value: string | undefined): number {
+    const size = /^(\d+(?:\.\d+)?)(px|rem)$/.exec(value ?? '')
+    if (!size) throw new Error(`not a size in px or rem: ${value}`)
+    return Number(size[1]) * (size[2] === 'rem' ? 16 : 1)
+  }
+
+  it('eight roles, each with its face, its size, its weight and a line height of its own', () => {
+    expect(
+      ROLES.map((name) => [
+        name,
+        role(name).get('font-family'),
+        role(name).get('font-size'),
+        role(name).get('font-weight'),
+        role(name).get('line-height'),
+      ]),
+    ).toEqual([
+      ['type-label', 'var(--font-heading)', '13px', '700', '1.2'],
+      ['type-figure-28', 'var(--font-heading)', '28px', '700', '1'],
+      ['type-figure-22', 'var(--font-heading)', '22px', '700', '1'],
+      ['type-figure-17', 'var(--font-heading)', '17px', '700', '1.1'],
+      ['type-figure-15', 'var(--font-heading)', '15px', '700', '1.1'],
+      ['type-n', 'var(--font-heading)', '14px', '500', '1.15'],
+      ['type-row', 'var(--font-heading)', '16px', '600', '1.15'],
+      ['type-sub', 'var(--font-sans)', '14px', '400', '1.35'],
+    ])
+    // Each is written once: a second block of the same name would add to the first one.
+    expect(new Set(ROLES).size).toBe(ROLES.length)
+  })
+
+  it('no figure is under 14 px, and the label, the smallest of them, is not under 13 px', () => {
+    expect(ROLES.length).toBeGreaterThanOrEqual(8)
+    for (const name of ROLES) {
+      expect(pixels(role(name).get('font-size')), name).toBeGreaterThanOrEqual(name === 'type-label' ? 13 : 14)
+    }
+    expect(pixels(role('type-label').get('font-size'))).toBeGreaterThanOrEqual(13)
+    // The helper reads both units, and nothing else.
+    expect(pixels('0.875rem')).toBe(14)
+    expect(pixels('13px')).toBe(13)
+    expect(() => pixels('1.2em')).toThrow()
+    expect(() => pixels(undefined)).toThrow()
+  })
+
+  it('a figure is named after its size, is bold and keeps its digits in columns', () => {
+    const figures = ROLES.filter((name) => name.startsWith('type-figure-'))
+    expect(figures).toHaveLength(4)
+    for (const name of figures) {
+      expect(pixels(role(name).get('font-size')), name).toBe(Number(name.slice('type-figure-'.length)))
+      expect(pixels(role(name).get('font-size')), name).toBeGreaterThanOrEqual(14)
+      expect(role(name).get('font-weight'), name).toBe('700')
+      expect(role(name).get('font-variant-numeric'), name).toBe('tabular-nums')
+      expect(role(name).get('font-family'), name).toBe('var(--font-heading)')
+    }
+    expect(pixels(role('type-n').get('font-size'))).toBeGreaterThanOrEqual(14)
+  })
+
+  it('every role writes its line height, without a unit and tighter than the body’s', () => {
+    const body = /\n {2}body\s*\{([^}]*)\}/.exec(CSS)?.[1] ?? ''
+    const bodyLine = Number(/line-height:\s*([\d.]+);/.exec(body)?.[1])
+    expect(bodyLine).toBe(1.45)
+    for (const name of ROLES) {
+      const line = role(name).get('line-height') ?? ''
+      expect(line, name).toMatch(/^\d(?:\.\d+)?$/)
+      expect(Number(line), name).toBeGreaterThanOrEqual(1)
+      expect(Number(line), name).toBeLessThan(bodyLine)
+    }
+  })
+
+  it('the label is in capitals with its letters spaced, and no role brings a colour: that is the piece’s', () => {
+    expect(role('type-label').get('text-transform')).toBe('uppercase')
+    expect(role('type-label').get('letter-spacing')).toBe('0.08em')
+    for (const name of ROLES) {
+      expect(
+        [...role(name).keys()].filter((property) => /color|background|shadow/.test(property)),
+        name,
+      ).toEqual([])
+    }
+  })
+})
+
+describe('the seal of a source and the marks of a figure', () => {
+  const seal = read('components/figures/SourceSeal.tsx')
+  const marks = read('components/figures/Marks.tsx')
+  /** Where a seal or a mark is drawn: the page, a card, the head of a table. */
+  const SURFACES = ['--background', '--card', '--surface-2']
+
+  it('the pairs below are the ones the pieces write', () => {
+    // Each with what it takes where the system forces its colours: an edge, of no colour written.
+    expect(seal).toContain("matches: 'bg-foreground text-card forced-colors:border-[3px] forced-colors:border-double',")
+    expect(seal).toContain(
+      "tournament: 'text-foreground shadow-[inset_0_0_0_1.5px_var(--foreground-2)] forced-colors:border-[1.5px]',",
+    )
+    expect(seal).toContain("simulation: 'border-[1.5px] border-dashed border-foreground-2 text-foreground',")
+    expect(seal).toContain(
+      "const QUIET_FILL = 'bg-foreground-2 text-card forced-colors:border-[3px] forced-colors:border-double'",
+    )
+    expect(marks).toContain(
+      "border-[1.5px] border-warning bg-[linear-gradient(90deg,var(--warning)_50%,transparent_50%)] forced-colors:border-l-[4.5px]',",
+    )
+    expect(marks).toContain("border-x-transparent border-b-warning [clip-path:polygon(50%_0,100%_100%,0_100%)]',")
+    expect(marks).toContain("'type-n whitespace-nowrap text-foreground-3'")
+    // The letter of a seal is 13 px and bold: text, by the rule of 4.5:1.
+    expect(seal).toContain('font-heading text-[13px] leading-none font-bold')
+  })
+
+  describe.each(THEMES)('WCAG AA in the %s theme', (theme) => {
+    const TEXT = 4.5
+    const GRAPHIC = 3
+
+    it('M: its letter on the fill and on the quiet fill, and each fill against what it is drawn on', () => {
+      expect(contrast('--card', '--foreground', theme)).toBeGreaterThanOrEqual(TEXT)
+      expect(contrast('--card', '--foreground-2', theme)).toBeGreaterThanOrEqual(TEXT)
+      for (const surface of SURFACES) {
+        expect(contrast('--foreground', surface, theme), surface).toBeGreaterThanOrEqual(GRAPHIC)
+        expect(contrast('--foreground-2', surface, theme), surface).toBeGreaterThanOrEqual(GRAPHIC)
+      }
+    })
+
+    it('T and B: the letter as text, the outline and the dashes as a graphic, on every surface', () => {
+      for (const surface of SURFACES) {
+        expect(contrast('--foreground', surface, theme), surface).toBeGreaterThanOrEqual(TEXT)
+        expect(contrast('--foreground-2', surface, theme), surface).toBeGreaterThanOrEqual(GRAPHIC)
+      }
+    })
+
+    it('the marks: the amber of «orientativo» and of ▲ as a graphic, «sin datos» as text', () => {
+      for (const surface of SURFACES) {
+        expect(contrast('--warning', surface, theme), surface).toBeGreaterThanOrEqual(GRAPHIC)
+        expect(contrast('--foreground-3', surface, theme), surface).toBeGreaterThanOrEqual(TEXT)
+      }
+    })
+  })
+})
+
+describe('the small charts, the figure and the block of a source', () => {
+  const charts = read('components/figures/MiniCharts.tsx')
+  const bar = read('components/figures/IntervalBar.tsx')
+  const value = read('components/figures/FigureValue.tsx')
+  const block = read('components/figures/SourceBlock.tsx')
+  const legend = read('components/figures/SourceLegend.tsx')
+  /** Where a chart or a block is drawn: the page, a card, the second surface (a tinted cell, the head of a table). */
+  const SURFACES = ['--background', '--card', '--surface-2']
+  /** A token as it is seen over a translucent one, itself over an opaque surface: the point over the band. */
+  const over = (ink: string, layer: string, surface: string, theme: Theme) =>
+    ratio(colorOf(ink, theme), { rgb: seenOn(colorOf(layer, theme), colorOf(surface, theme)), alpha: 1 })
+
+  it('the pairs below are the ones the pieces write', () => {
+    // The interval of a cell and the large one of a block are drawn with the same tokens (and, where the system
+    // forces its colours, with an edge of the thickness of each part instead).
+    expect(charts).toContain(
+      'data-part="track" className="absolute inset-x-0 top-[5.5px] h-px bg-track forced-colors:border-t"',
+    )
+    expect(bar).toContain(
+      'className="absolute inset-x-0 top-[5px] h-[2px] rounded-[2px] bg-track forced-colors:border-t-2"',
+    )
+    expect(charts).toContain('className="absolute inset-y-px w-px bg-foreground-3 forced-colors:border-l"')
+    expect(bar).toContain('className="absolute top-px h-[10px] w-px bg-foreground-3 forced-colors:border-l"')
+    for (const source of [charts, bar]) {
+      expect(source).toContain('className="absolute top-[3px] h-[6px] rounded-[3px] bg-band forced-colors:border"')
+      expect(source).toContain('w-[2px] rounded-[1px] bg-warning forced-colors:border-l-2"')
+      expect(source).toContain('rounded-full bg-foreground shadow-[0_0_0_2px_var(--chart-surface,var(--card))] forced-')
+    }
+    expect(charts).toContain(
+      'bg-[repeating-linear-gradient(90deg,var(--track)_0_4px,transparent_4px_8px)] forced-colors:border-t forced-colors:border-dashed"',
+    )
+    // The bar against a maximum, and the bar of a record.
+    expect(charts).toContain(
+      "className={cn('block h-[6px] overflow-hidden rounded-[3px] bg-track forced-colors:border', className)}",
+    )
+    expect(charts).toContain('className="block h-full rounded-r-[3px] bg-foreground-2 forced-colors:border-y-2"')
+    expect(charts).toContain("drawn.length === 0 && 'bg-track forced-colors:border'")
+    for (const tone of [
+      "win: 'bg-success',",
+      "loss: 'bg-destructive',",
+      "draw: 'bg-draw',",
+      "strong: 'bg-foreground',",
+      "soft: 'bg-foreground-3',",
+      "none: 'shadow-[inset_0_0_0_1.5px_var(--input)] ",
+    ]) {
+      expect(charts, tone).toContain(tone)
+    }
+    // The figure: the percentage in the text colour, its n in the second or the third, a stale one in the second.
+    expect(value).toContain(
+      "cell: { line: 'items-baseline', lead: 'type-figure-17', rest: 'type-n leading-[1.1] text-foreground-3'",
+    )
+    expect(value).toContain("rest: 'type-n leading-[18px] text-foreground-2',")
+    expect(value).toContain("hero: { line: 'items-baseline', lead: 'type-figure-22', rest: 'type-n text-foreground-3'")
+    expect(value).toContain("score: { line: 'items-baseline', lead: 'type-figure-28', rest: 'type-n text-foreground-2'")
+    expect(value).toContain("figure.stale ? 'font-medium text-foreground-2' : 'text-foreground'")
+    expect(value).toContain('<small className="text-[15px] font-semibold text-foreground-2">')
+    // The block of a source and the legend.
+    expect(block).toContain("'flex min-w-0 font-heading tracking-[0.02em] text-foreground-2',")
+    expect(block).toContain("figure.stale ? 'font-medium text-foreground-2' : 'text-foreground',")
+    expect(block).toContain('<span className="type-n text-foreground-3">{figureSample(figure)}</span>')
+    expect(block).toContain("lane ? 'leading-[1.4] text-foreground-2' : 'text-foreground-3'")
+    expect(block).toContain('data-part="warning" className="type-sub text-pretty wrap-anywhere text-foreground"')
+    expect(block).toContain('data-part="unavailable" className="type-sub text-pretty wrap-anywhere text-foreground-2"')
+    expect(block).toContain('data-part="note" className="type-sub text-pretty wrap-anywhere text-foreground-3"')
+    expect(block).toContain("'rounded-[10px] border border-dashed border-input px-[10px] py-2'")
+    expect(bar).toContain('className="flex min-h-[18px] items-center type-n text-foreground-2"')
+    expect(legend).toContain("'flex flex-wrap gap-x-[14px] type-n leading-[1.3] tracking-[0.01em] text-foreground-3',")
+  })
+
+  describe.each(THEMES)('WCAG AA in the %s theme', (theme) => {
+    const TEXT = 4.5
+    const GRAPHIC = 3
+
+    it('the band of an interval is a graphic on the page, on a card and on the second surface', () => {
+      for (const surface of SURFACES) {
+        expect(contrast('--band', surface, theme), surface).toBeGreaterThanOrEqual(GRAPHIC)
+      }
+    })
+
+    it('the point, the tick and the mark of a reference, on each surface; the point, over the band too', () => {
+      for (const surface of SURFACES) {
+        expect(contrast('--foreground', surface, theme), surface).toBeGreaterThanOrEqual(GRAPHIC)
+        expect(contrast('--foreground-3', surface, theme), surface).toBeGreaterThanOrEqual(GRAPHIC)
+        expect(contrast('--warning', surface, theme), surface).toBeGreaterThanOrEqual(GRAPHIC)
+        expect(over('--foreground', '--band', surface, theme), surface).toBeGreaterThanOrEqual(GRAPHIC)
+      }
+    })
+
+    it('the track is a rail and not a mark: it is under 3:1, and nothing is read from it alone', () => {
+      for (const surface of SURFACES) {
+        // D's token, as it came: a line that can be seen and that says nothing by itself.
+        expect(contrast('--track', surface, theme), surface).toBeLessThan(GRAPHIC)
+        expect(contrast('--track', surface, theme), surface).toBeGreaterThan(1.25)
+        // What is read on it passes: the fill of a bar against a maximum (the point and the band are above).
+        expect(contrast('--foreground-2', surface, theme), surface).toBeGreaterThanOrEqual(GRAPHIC)
+      }
+    })
+
+    it('the bar of a record: each tone against what it is drawn on', () => {
+      for (const surface of SURFACES) {
+        for (const tone of ['--success', '--destructive', '--draw', '--foreground', '--foreground-3', '--input']) {
+          expect(contrast(tone, surface, theme), `${tone} on ${surface}`).toBeGreaterThanOrEqual(GRAPHIC)
+        }
+      }
+    })
+
+    it('what a figure and a block write: the three text colours, on each surface', () => {
+      for (const surface of SURFACES) {
+        for (const text of ['--foreground', '--foreground-2', '--foreground-3']) {
+          expect(contrast(text, surface, theme), `${text} on ${surface}`).toBeGreaterThanOrEqual(TEXT)
+        }
+      }
+    })
+
+    it('the dashed edge of a source that is not available, as a graphic', () => {
+      for (const surface of SURFACES) {
+        expect(contrast('--input', surface, theme), surface).toBeGreaterThanOrEqual(GRAPHIC)
+      }
+    })
+  })
+
+  it('the band has no room: a lighter surface in the dark theme and it is no longer a graphic', () => {
+    // 3.02, 3.06 and 3.01 on the page, a card and the second surface. Pinned: a change of any of the four tokens
+    // that takes one of these under 3:1 has to change the band with it.
+    for (const surface of SURFACES) {
+      expect(contrast('--band', surface, 'dark'), surface).toBeGreaterThanOrEqual(3)
+      expect(contrast('--band', surface, 'dark'), surface).toBeLessThan(3.1)
+    }
+    expect(contrast('--band', '--card', 'dark')).toBeCloseTo(3.06, 2)
+    expect(contrast('--band', '--surface-2', 'dark')).toBeCloseTo(3.01, 1)
+    expect(contrast('--band', '--card', 'light')).toBeCloseTo(3.57, 2)
+    expect(contrast('--band', '--surface-2', 'light')).toBeCloseTo(3.49, 2)
+    // On the third surface it does not pass in the dark theme: an interval is not drawn there.
+    expect(contrast('--band', '--surface-3', 'dark')).toBeLessThan(3)
+    expect(contrast('--band', '--surface-3', 'light')).toBeGreaterThanOrEqual(3)
+  })
+
+  it('the track is the same thin rail in both themes, on every surface', () => {
+    for (const theme of THEMES) {
+      for (const surface of [...SURFACES, '--surface-3']) {
+        const seen = contrast('--track', surface, theme)
+        expect(seen, `${surface} ${theme}`).toBeGreaterThan(1.25)
+        expect(seen, `${surface} ${theme}`).toBeLessThan(1.6)
+      }
+    }
+    expect(contrast('--track', '--card', 'dark')).toBeCloseTo(1.47, 2)
+    expect(contrast('--track', '--card', 'light')).toBeCloseTo(1.31, 2)
+  })
+
+  it('a victory and a defeat are told apart by their hue only: the bar never says a record alone', () => {
+    // Side by side the two fills are 1.3:1 at most. The numbers are written beside the bar, or it takes a label.
+    for (const theme of THEMES) {
+      expect(ratio(colorOf('--success', theme), colorOf('--destructive', theme))).toBeLessThan(1.5)
+    }
+    expect(charts).toContain(
+      "{...(label === undefined ? { 'aria-hidden': true } : { role: 'img', 'aria-label': label })}",
+    )
+    expect(charts).toContain('title={segment.label}')
+  })
+})

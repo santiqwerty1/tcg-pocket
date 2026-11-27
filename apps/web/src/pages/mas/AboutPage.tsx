@@ -1,4 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
+import { ChevronRightIcon } from 'lucide-react'
+import { Link } from 'react-router'
 import { request } from '@/api/client'
 import { healthSchema } from '@/api/schemas'
 import { KeyValue, Section } from '@/components/Section'
@@ -27,6 +29,16 @@ export function AboutPage() {
           ]}
         />
         <p className="text-sm text-muted-foreground">App personal para un solo usuario. No es un servicio.</p>
+        {/* The gallery of the renewal of the interface: a row to tap, as the ones of the Menú. */}
+        <Link to="/mas/piezas" className="flex min-h-14 items-center gap-3 rounded-lg border px-3 py-2 hover:bg-muted">
+          <span className="min-w-0 flex-1">
+            <span className="block font-medium">Piezas de la interfaz</span>
+            <span className="block text-xs text-muted-foreground">
+              Cómo se ven los componentes nuevos, con datos de prueba
+            </span>
+          </span>
+          <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
+        </Link>
       </Section>
 
       <Section title="Licencias">

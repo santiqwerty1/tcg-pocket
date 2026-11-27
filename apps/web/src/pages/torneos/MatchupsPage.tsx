@@ -10,7 +10,7 @@ import { useMatchupMatrix } from '@/api/tournaments'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
-import { formatInterval, formatRateValue, formatSample, ORIENTATIVE_BELOW } from '@/lib/matches'
+import { formatInterval, formatRateValue, formatSample, formatSampleShort, ORIENTATIVE_BELOW } from '@/lib/matches'
 import { matchupTone, shortName, TONE_CLASS } from '@/lib/matchups'
 import { formatCount, formatShare, scopeFromSearch, scopeSearch } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
@@ -94,7 +94,7 @@ function Table({ data, search }: { data: MatchupMatrix; search: string }) {
                           {formatRateValue(item.rate.value)}
                         </span>
                         <span className="block text-[10px] text-muted-foreground">
-                          n {formatCount(item.rate.games)}
+                          {formatSampleShort(item.rate.games)}
                         </span>
                       </>
                     ) : (

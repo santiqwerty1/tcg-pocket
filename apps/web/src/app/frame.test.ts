@@ -210,10 +210,12 @@ describe('the frame and the route table', () => {
   const all = declared()
 
   it('every route has its tab or belongs to the Menú, so a new route cannot be left out', () => {
-    expect(all.length).toBeGreaterThanOrEqual(61)
+    expect(all.length).toBeGreaterThanOrEqual(62)
     const outside = all.filter(({ path }) => path !== '*' && frameFor(path).tab === null).map(({ path }) => path)
     expect(outside.every((path) => path === '/mas' || path.startsWith('/mas/'))).toBe(true)
-    expect(outside).toHaveLength(9)
+    // The Menú, its eight pages and the gallery of the pieces, which «Acerca de» leads to.
+    expect(outside).toHaveLength(10)
+    expect(outside).toContain('/mas/piezas')
     // And the Menú's pages light no tab.
     for (const path of outside) expect(isMenuPath(path), path).toBe(true)
   })

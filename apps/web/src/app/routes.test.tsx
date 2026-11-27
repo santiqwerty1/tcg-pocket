@@ -14,7 +14,7 @@ import { routes } from './routes'
 const ROOT = process.cwd()
 const text = (path: string) => readFileSync(resolve(ROOT, path), 'utf8')
 
-/** The 60 named patterns of today, each with an address that must open it. */
+/** The 61 named patterns of today, each with an address that must open it. */
 const ROUTES: [pattern: string, sample: string][] = [
   ['/partidas', '/partidas'],
   ['/partidas/estadisticas', '/partidas/estadisticas'],
@@ -72,6 +72,8 @@ const ROUTES: [pattern: string, sample: string][] = [
   ['/mas/sesion', '/mas/sesion'],
   ['/mas/ajustes', '/mas/ajustes'],
   ['/mas/acerca', '/mas/acerca'],
+  // The gallery of the pieces of mock-up D, with test data (phase 1 «componentes»): it goes when the renewal ends.
+  ['/mas/piezas', '/mas/piezas'],
   ['/mas/mano', '/mas/mano'],
   ['/mas/notas', '/mas/notas'],
   ['/eventos', '/eventos'],
@@ -103,9 +105,9 @@ function patternFor(address: string): string | undefined {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('every URL of today still opens its screen', () => {
-  it('the table declares the 60 named patterns, and «*» for the rest', () => {
-    expect(ROUTES).toHaveLength(60)
-    expect(new Set(ROUTES.map(([pattern]) => pattern)).size).toBe(60)
+  it('the table declares the 61 named patterns, and «*» for the rest', () => {
+    expect(ROUTES).toHaveLength(61)
+    expect(new Set(ROUTES.map(([pattern]) => pattern)).size).toBe(61)
     expect(
       declared()
         .map((path) => (path === '*' ? path : `/${path}`))
