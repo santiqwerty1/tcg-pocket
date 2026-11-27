@@ -419,7 +419,7 @@ export function PromoPage() {
         </div>
       ) : (
         <p className="text-sm">
-          No hay un evento de sobres de promoción en curso, así que no hay batallas para ganar. Abajo, qué te falta de
+          No hay un evento con batallas de promoción en curso, así que no hay ninguna para ganar. Abajo, qué te falta de
           cada volumen.
         </p>
       )}
@@ -512,6 +512,11 @@ export function PromoPage() {
         <h2 className="text-sm font-medium text-foreground">Supuestos</h2>
         <ul className="list-disc pl-5">
           <li>Un sobre de promoción trae 1 carta de su volumen. El juego no publica las tasas: se toman iguales.</li>
+          <li>
+            C vol. 1 (8 cartas) no tiene una batalla propia: sus sobres salen de «Partidas limitadas de Fusión Dual»
+            (del 18/11 al 2/12/2026), de las misiones diarias, de ganar 3 partidas y, a veces, de una partida ganada.
+            Por eso no cuenta como evento con batallas.
+          </li>
           <li>
             Objetivo (tuyo, del 2/11): {data.goal} copias de cada edición. Victorias para completarlo: el promedio
             exacto con las copias que ya tenés. Con nada en la mano, en un volumen de 5 cartas: ~19 para tener 2 de cada

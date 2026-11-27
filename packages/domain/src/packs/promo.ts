@@ -1,7 +1,7 @@
 /**
  * Sobres de promoción (30/10/2026): the promo packs of the game's events, one per volume of each promo series. A
- * promo pack brings ONE card of its volume, and each volume has its own event battle that can be won again and again
- * (every win gives that volume's pack). So the question is which battle to win next: the volume where a win most
+ * promo pack brings ONE card of its volume, and each volume of A and B has its own event battle that can be won again
+ * and again (every win gives that volume's pack; C vol. 1 has none, see below). So the question is which battle to win next: the volume where a win most
  * likely brings a copy the collection lacks (or a card a deck lacks), and how many wins finishing each one takes.
  * - Goal (Santi, 2/11/2026): PROMO_GOAL copies of each print, 2 (the copies a deck plays); a print with fewer lacks the
  *   rest.
@@ -9,6 +9,10 @@
  * - Contents: the tracker data does not say which volume a promo comes from (every promo is `everypack`). Serebii's
  *   Promo-A and Promo-B lists mark the cards «obtained from a promo pack»: runs of consecutive numbers, 5 per volume
  *   (7 in A vol. 9), the volumes in order. Checked against Dittobase for A 7, A 9, A 13, B 1, B 7 and B 8.
+ * - C vol. 1 (27/11/2026): P-C 2–9, 8 cards with one Trainer (Conversor Genoma Y), from Serebii's page of the «Dual
+ *   Fusion Limited Battles» and WikiDex's «Partidas limitadas Fusión Dual». P-C 1 (Pikachu) and P-C 10–13 are not in
+ *   it. That event has no battle per volume: its packs come from daily missions, a win milestone and (WikiDex) a
+ *   chance per win, so it is not in `PROMO_EVENTS` (docs/decisiones/pendientes/feat-promo-c-vol1.md).
  * - Rates: the game does not publish them; every card of a volume is taken as equally likely.
  * - Wins to finish a volume: exact, a Markov chain over the copies each print still lacks (winsToComplete). With one
  *   copy as the goal it is the coupon collector, n · (1 + 1/2 + … + 1/m).
@@ -27,10 +31,10 @@ import { playableCopies } from '../collection/playable.js'
 import { type StockQuantities, stockValueOf } from '../collection/stock.js'
 import type { TradeDeck } from '../collection/trades.js'
 
-export type PromoSeries = 'A' | 'B'
+export type PromoSeries = 'A' | 'B' | 'C'
 
 export interface PromoVolume {
-  /** «A7», «B1»… */
+  /** «A7», «B1», «C1»… */
   id: string
   series: PromoSeries
   volume: number
@@ -43,7 +47,7 @@ function volume(series: PromoSeries, number: number, first: number, last: number
   return { id: `${series}${number}`, series, volume: number, cardIds }
 }
 
-/** Promo packs A Series Vol. 1–13 and B Series Vol. 1–13, in release order. */
+/** Promo packs A Series Vol. 1–13, B Series Vol. 1–13 and C Series Vol. 1, in release order. */
 export const PROMO_VOLUMES: readonly PromoVolume[] = [
   volume('A', 1, 13, 17),
   volume('A', 2, 18, 22),
@@ -71,6 +75,9 @@ export const PROMO_VOLUMES: readonly PromoVolume[] = [
   volume('B', 11, 80, 84),
   volume('B', 12, 88, 92),
   volume('B', 13, 96, 100),
+  // Mega-Mewtwo Y ex, Deoxys, Inkay, Malamar, Cosmog, Cosmoem, Lunala and Conversor Genoma Y (Serebii and WikiDex,
+  // 27/11/2026; the names as the tracker export of 11/11 gives them).
+  volume('C', 1, 2, 9),
 ]
 
 export interface PromoEvent {
@@ -288,7 +295,7 @@ function cardStatus(
 /** The counts of the three tiers, in order; each is a chance k / (cards in the volume). */
 const tiers = (status: PromoVolumeStatus) => [status.deckCards, status.newCards, status.missing]
 
-/** Higher chance first, tier by tier, comparing k/n exactly (cross-multiplied: volumes have 5 or 7 cards). */
+/** Higher chance first, tier by tier, comparing k/n exactly (cross-multiplied: volumes have 5, 7 or 8 cards). */
 function compareTiers(a: PromoVolumeStatus, b: PromoVolumeStatus): number {
   const ka = tiers(a)
   const kb = tiers(b)

@@ -9,6 +9,8 @@ export const ENGINE_REV = 'fb792ebfbaca995af9750c28101ce92a51282825'
 const fixturesDir = join(import.meta.dirname, '..', 'fixtures')
 const repoRoot = join(import.meta.dirname, '..', '..', '..', '..')
 export const COLLECTION_CSV_PATH = join(repoRoot, 'docs/context/tcgcollectiontracterexport-2026-10-06.csv')
+/** The export of 11/11/2026, with C1 and P-C (tracker `9fafc07`): newer than the catalog fixture, read as raw rows. */
+export const COLLECTION_CSV_2026_11_11_PATH = join(repoRoot, 'docs/context/tcgcollectiontracterexport-2026-11-11.csv')
 
 export interface Fixtures {
   cardsJson: unknown
