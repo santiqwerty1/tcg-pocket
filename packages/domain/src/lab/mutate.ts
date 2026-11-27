@@ -13,6 +13,8 @@ import { typesOf } from '../catalog/pokemonTypes.js'
 import type { CardEdition, CardId, SelectableEnergy } from '../catalog/types.js'
 import type { DeckCardEntry } from '../decks/types.js'
 import { validateDeck } from '../decks/validate.js'
+import { cardBreaksEvent, type EventRules } from '../events/rules.js'
+import { type EngineStatus, engineEdition } from '../simulation/snapshot.js'
 import { listKeyByGroup } from '../tournaments/dataset.js'
 import { groupsOfCards } from './novelty.js'
 
@@ -50,7 +52,10 @@ export interface PoolOptions {
   usage?: ((groupId: CardId) => number) | undefined
   /** Share of the lists like this deck (its archetype) that play the card (0–100). */
   affinity?: ((groupId: CardId) => number) | undefined
-  /** Fase 16: only cards an event allows can come in. */
+  /**
+   * Fase 16: only cards an event allows can come in. A filter on the edition `edition` picks, not the event's own
+   * `allow` list of editions (that one is in `EventRules`, and `eventEdition` already honours it).
+   */
   allow?: ((card: CardEdition) => boolean) | undefined
 }
 
@@ -295,6 +300,30 @@ export function sharedNames(cardIds: Iterable<CardId>, index: CatalogIndex): Set
 export function poolCaps(pool: readonly PoolCard[], which: 'collection' | 'all'): (groupId: CardId) => number {
   const caps = new Map(pool.map((card) => [card.groupId, card.maxCopies]))
   return (groupId) => caps.get(groupId) ?? (which === 'collection' ? 0 : 2)
+}
+
+/**
+ * The edition the Laboratorio puts in for a functional card: its display edition, as the engine plays it
+ * (`engineEdition`), or null when the engine plays none. Under an event whose edition rules that edition breaks
+ * (another expansion or rarity, and not in the event's `allow`), another edition of the card the engine plays and the
+ * event accepts — a card's C1 reprint instead of its A1 edition in a «solo Fusión Dual», or the one edition the event
+ * allows — or null when there is none. A card that breaks a card rule (type, ex, banned) breaks it in every edition.
+ */
+export function eventEdition(
+  groupId: CardId,
+  index: CatalogIndex,
+  engine: EngineStatus,
+  rules?: EventRules,
+): CardEdition | null {
+  const group = index.groupById(groupId)
+  const display = group ? index.cardById(group.displayCardId) : undefined
+  const played = display ? engineEdition(display, index, engine) : null
+  if (!played || !rules || cardBreaksEvent(played, rules) === null) return played
+  return (
+    index
+      .cardsOfGroup(groupId)
+      .find((card) => engine(card.engineId) === true && cardBreaksEvent(card, rules) === null) ?? null
+  )
 }
 
 export function mutationPool(options: PoolOptions): PoolCard[] {
