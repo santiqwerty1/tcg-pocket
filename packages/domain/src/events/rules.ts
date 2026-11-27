@@ -160,7 +160,8 @@ export function describeEventRulesEs(rules: EventRules, index: CatalogIndex): st
   }
   // Allowed editions only mean something next to an edition rule (the API refuses them without one).
   if ((rules.rarities || rules.expansions) && rules.allow && rules.allow.length > 0) {
-    lines.push(`Además, estas ediciones: ${allowedEditionsEs(rules.allow, index)}.`)
+    const one = new Set(rules.allow).size === 1
+    lines.push(`Además, ${one ? 'esta edición' : 'estas ediciones'}: ${allowedEditionsEs(rules.allow, index)}.`)
   }
   if (rules.banned && rules.banned.length > 0) {
     lines.push(`Prohibidas: ${rules.banned.map((id) => index.groupById(id)?.nameEs ?? id).join(', ')}.`)
@@ -194,7 +195,8 @@ export type NormalizedEventRules = { ok: true; rules: EventRules } | { ok: false
 /**
  * The rules as they are stored, or why not (in Spanish): banned cards as functional cards (an edition id becomes its
  * card, without repeats), only expansions the catalog knows, and allowed editions the catalog knows, without repeats
- * (an empty list is dropped) and only next to an edition rule for them to lift.
+ * (an empty list is dropped), only next to an edition rule for them to lift and none of a banned card (the two lists
+ * would say opposite things).
  */
 export function normalizeEventRules(rules: EventRules, index: CatalogIndex): NormalizedEventRules {
   const next: EventRules = { ...rules }
@@ -203,6 +205,7 @@ export function normalizeEventRules(rules: EventRules, index: CatalogIndex): Nor
     if (banned.some((id) => id === null)) return { ok: false, message: 'Una carta prohibida no existe en el catálogo.' }
     next.banned = [...new Set(banned as CardId[])]
   }
+  const banned = new Set(next.banned ?? [])
   const expansions = rules.expansions?.filter((id) => !index.expansionById(id))
   if (expansions && expansions.length > 0) {
     return { ok: false, message: `Expansión desconocida: ${expansions.join(', ')}.` }
@@ -213,6 +216,15 @@ export function normalizeEventRules(rules: EventRules, index: CatalogIndex): Nor
     if (unknown.length > 0) {
       const what = unknown.length === 1 ? 'Edición desconocida' : 'Ediciones desconocidas'
       return { ok: false, message: `${what}: ${unknown.join(', ')}.` }
+    }
+    const contradicted = allow.filter((id) => banned.has(index.cardById(id)?.functionalGroupId ?? ''))
+    if (contradicted.length > 0) {
+      const cards = new Set(contradicted.map((id) => index.cardById(id)?.functionalGroupId)).size
+      const what =
+        contradicted.length === 1
+          ? 'Una edición permitida es de una carta prohibida'
+          : `Estas ediciones permitidas son de ${cards === 1 ? 'una carta prohibida' : 'cartas prohibidas'}`
+      return { ok: false, message: `${what}: ${allowedEditionsEs(contradicted, index)}.` }
     }
     if (allow.length === 0) delete next.allow
     else if (!rules.rarities && !rules.expansions) {

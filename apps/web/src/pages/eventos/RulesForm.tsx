@@ -3,7 +3,7 @@
  * them and banned cards.
  */
 import { XIcon } from 'lucide-react'
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useCardsBatch, useExpansions } from '@/api/catalog'
 import { EVENT_TYPES, type EventRules, type EventType } from '@/api/schemas'
 import { CardSearch } from '@/components/CardSearch'
@@ -70,6 +70,14 @@ function AllowedEditions({
   const lookup = useDebouncedValue(shown.filter(looksLikeEditionCode).join(','), 300)
   const looked = new Set(lookup ? lookup.split(',') : [])
   const cards = useCardsBatch([...looked])
+  // Codes typed before the expansions arrived are written again as the catalog writes them («p-a-001» is P-A-1).
+  const expansionKey = expansionIds.join(',')
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the expansions arriving is the trigger, not the typing.
+  useEffect(() => {
+    if (!expansionKey || !text.trim()) return
+    const parsed = parseEditionCodes(text, expansionKey.split(','))
+    if (parsed.join(',') !== codes.join(',')) onChange(parsed)
+  }, [expansionKey])
   return (
     <fieldset className="flex min-w-0 flex-col gap-1.5">
       <legend className="mb-1 text-sm font-medium">Ediciones permitidas aparte</legend>
@@ -128,7 +136,9 @@ function AllowedEditions({
       ) : null}
       {codes.length > 0 && !editionRule ? (
         <p className="text-xs text-destructive">
-          Necesitan una regla de rarezas o de expansiones: sin ella cualquier edición vale, y no se pueden guardar.
+          {codes.length === 1
+            ? 'Necesita una regla de rarezas o de expansiones: sin ella cualquier edición vale, y no se puede guardar.'
+            : 'Necesitan una regla de rarezas o de expansiones: sin ella cualquier edición vale, y no se pueden guardar.'}
         </p>
       ) : null}
     </fieldset>

@@ -105,6 +105,7 @@ import {
   perGameSummary,
   poolCaps,
   poolForZone,
+  preEvolutionFor,
   probeGamesPerRival,
   probeVariants,
   RACE_SEED_OFFSET,
@@ -863,7 +864,9 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               ? 'No la tenés en la colección'
               : played(item.groupId) === null
                 ? 'El motor todavía no la juega'
-                : `No entra en las reglas de «${event?.name ?? 'el evento'}»`,
+                : event && fitsEventSomehow(item.groupId, index, event.rules)
+                  ? `El motor todavía no juega las ediciones que permite «${event.name}»`
+                  : `No entra en las reglas de «${event?.name ?? 'el evento'}»`,
         }
       }),
       problems: build.problems,
@@ -1246,7 +1249,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         if (!played) throw refuse('el motor no la juega')
         // Under an event, the edition it accepts (another one than the display's when only that one fits).
         const card = event ? eventEdition(groupId, index, engine, event.rules) : played
-        if (!card) throw refuse(`el evento «${event?.name ?? ''}» no la permite`)
+        if (event && !card) throw refuse(eventRefusalEs(groupId, index, event))
+        if (!card) throw refuse('el motor no la juega')
         asked.push({ cardId: card.id, groupId, nameEn: card.nameEn, maxCopies: 2, weight: top })
       }
       // Review of #64: an evolution to try brings its pre-evolution along, which may not be in the collection either:
@@ -1255,13 +1259,16 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       for (const card of [...asked]) {
         const pre = index.cardById(card.cardId)?.evolvesFrom
         if (!pre) continue
-        const group = index.catalog.groups.find(
-          (item) => index.cardById(item.displayCardId)?.nameEn === pre && !inPool.has(item.id),
-        )
-        const edition = group ? eventEdition(group.id, index, engine, event?.rules) : null
-        if (!group || !edition) continue
-        inPool.add(group.id)
-        asked.push({ cardId: edition.id, groupId: group.id, nameEn: edition.nameEn, maxCopies: 2, weight: 0 })
+        const found = preEvolutionFor(pre, index, engine, inPool, event?.rules)
+        if (!found) continue
+        inPool.add(found.groupId)
+        asked.push({
+          cardId: found.edition.id,
+          groupId: found.groupId,
+          nameEn: found.edition.nameEn,
+          maxCopies: 2,
+          weight: 0,
+        })
       }
       fullPool = [...fullPool.filter((card) => !asked.some((item) => item.groupId === card.groupId)), ...asked]
     }
@@ -2922,6 +2929,21 @@ function evolutionAllowed(
   rules?: EventRules,
 ): (card: CardEdition) => boolean {
   return (card) => eventEdition(card.functionalGroupId, index, engine, rules) !== null
+}
+
+/** Some edition of the functional card meets the event's rules (whether the engine plays it or not). */
+function fitsEventSomehow(groupId: CardId, index: CatalogIndex, rules: EventRules): boolean {
+  return index.cardsOfGroup(groupId).some((card) => cardBreaksEvent(card, rules) === null)
+}
+
+/**
+ * Why a card to try cannot come in under an event, the engine playing it: no edition of it meets the rules, or the
+ * engine plays none of those that do.
+ */
+function eventRefusalEs(groupId: CardId, index: CatalogIndex, event: { name: string; rules: EventRules }): string {
+  return fitsEventSomehow(groupId, index, event.rules)
+    ? `el motor no juega las ediciones que permite el evento «${event.name}»`
+    : `el evento «${event.name}» no la permite`
 }
 
 /** H-021: the pool and the archetype usage of a search as it starts, kept in its state for every later round. */

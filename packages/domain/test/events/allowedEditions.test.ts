@@ -15,6 +15,7 @@ import {
   MAX_ALLOWED_EDITIONS,
   mutationPool,
   normalizeEventRules,
+  preEvolutionFor,
 } from '../../src/index.js'
 import { inventedC1Index } from '../helpers/inventedC1.js'
 
@@ -128,11 +129,21 @@ describe('ediciones permitidas aparte: in Spanish', () => {
       'Solo cartas de dualfusion.',
       'Además, estas ediciones: Poción (P-A-1), Velocidad X (P-A-2), Periscopio (P-A-3), Pokédex (P-A-4 y P-A-8), Poké Ball (P-A-5 y A2b-111), Tarjeta Roja (P-A-6), Investigación de Profesores (P-A-7 y A4b-373).',
     ])
-    // With a rarity rule too, and three editions of one name.
+    // A name typed again later joins its first place; repeats count once.
     expect(allowedEditionsEs(['A1-1', 'P-A-1', 'A4b-1', 'A1-1', 'A1-2'], index)).toBe(
       'Bulbasaur (A1-1 y A4b-1), Poción (P-A-1), Ivysaur (A1-2)',
     )
     expect(allowedEditionsEs(['A1-1', 'A4b-1', 'A1-1'], index)).toBe('Bulbasaur (A1-1 y A4b-1)')
+  })
+
+  it('one edition in the singular, also when it was typed twice; with a rarity rule too', () => {
+    expect(describeEventRulesEs({ rarities: ['◊'], allow: ['A4b-373', 'A4b-373'] }, index)).toEqual([
+      'Solo cartas ◊.',
+      'Además, esta edición: Investigación de Profesores (A4b-373).',
+    ])
+    expect(describeEventRulesEs({ rarities: ['◊'], allow: ['A4b-373', 'P-A-7'] }, index)[1]).toBe(
+      'Además, estas ediciones: Investigación de Profesores (A4b-373 y P-A-7).',
+    )
   })
 
   it('an edition the catalog does not know goes by its id, at the end', () => {
@@ -177,6 +188,28 @@ describe('ediciones permitidas aparte: as the API stores them', () => {
     })
     expect(normalizeEventRules({ rarities: ['◊'], allow: ['P-A-1'] }, index).ok).toBe(true)
   })
+
+  it('refuses an allowed edition of a banned card (by its card or by one of its editions)', () => {
+    expect(normalizeEventRules({ expansions: ['C1'], allow: ['P-A-5', 'P-A-1'], banned: ['A2b-111'] }, index)).toEqual({
+      ok: false,
+      message: 'Una edición permitida es de una carta prohibida: Poké Ball (P-A-5).',
+    })
+    expect(normalizeEventRules({ expansions: ['C1'], allow: ['P-A-5', 'A2b-111'], banned: ['P-A-5'] }, index)).toEqual({
+      ok: false,
+      message: 'Estas ediciones permitidas son de una carta prohibida: Poké Ball (P-A-5 y A2b-111).',
+    })
+    expect(
+      normalizeEventRules({ expansions: ['C1'], allow: ['P-A-5', 'P-A-1'], banned: ['P-A-1', 'A2b-111'] }, index),
+    ).toEqual({
+      ok: false,
+      message: 'Estas ediciones permitidas son de cartas prohibidas: Poké Ball (P-A-5), Poción (P-A-1).',
+    })
+    // Another card banned: fine.
+    expect(normalizeEventRules({ expansions: ['C1'], allow: ['P-A-5'], banned: ['P-A-1'] }, index)).toEqual({
+      ok: true,
+      rules: { expansions: ['C1'], allow: ['P-A-5'], banned: ['P-A-1'] },
+    })
+  })
 })
 
 describe('ediciones permitidas aparte: the Laboratorio', () => {
@@ -204,6 +237,35 @@ describe('ediciones permitidas aparte: the Laboratorio', () => {
     expect(eventEdition('A2b-111', index, noPromo)?.id).toBe('A2b-111')
     expect(eventEdition('A2b-111', index, noPromo, { expansions: ['C1'], allow: ['P-A-5'] })).toBeNull()
     expect(eventEdition('A2b-111', index, () => false)).toBeNull()
+  })
+
+  it('preEvolutionFor: under an event, the first functional card of the name with an edition it accepts', () => {
+    // Exeggcute: A1-21 comes first by name, A1a-1 is another functional card.
+    const named = index.catalog.groups.filter((group) => index.cardById(group.displayCardId)?.nameEn === 'Exeggcute')
+    expect(named.map((group) => group.id).slice(0, 2)).toEqual(['A1-21', 'A1a-1'])
+    expect(preEvolutionFor('Exeggcute', index, all, new Set())?.groupId).toBe('A1-21')
+    const onlyA1a: EventRules = { expansions: ['A1a'] }
+    expect(preEvolutionFor('Exeggcute', index, all, new Set(), onlyA1a)).toMatchObject({
+      groupId: 'A1a-1',
+      edition: { id: 'A1a-1' },
+    })
+    // Through `allow` too, with the allowed edition.
+    expect(
+      preEvolutionFor('Exeggcute', index, all, new Set(), { expansions: ['C1'], allow: ['A1a-1'] })?.edition.id,
+    ).toBe('A1a-1')
+    // Already in the pool, or none that fits: nothing.
+    expect(preEvolutionFor('Exeggcute', index, all, new Set(['A1a-1']), onlyA1a)).toBeNull()
+    expect(preEvolutionFor('Exeggcute', index, all, new Set(), DUAL_FUSION)).toBeNull()
+    // Without an event, only the first one, as before: the engine not playing it leaves nothing.
+    const first = new Set(index.cardsOfGroup('A1-21').map((edition) => edition.engineId))
+    const notFirst: EngineStatus = (engineId) => !first.has(engineId)
+    expect(preEvolutionFor('Exeggcute', index, notFirst, new Set())).toBeNull()
+    expect(preEvolutionFor('Exeggcute', index, notFirst, new Set(), onlyA1a)?.groupId).toBe('A1a-1')
+    // The engine plays another edition of it: that one.
+    const noA1: EngineStatus = (engineId) => !engineId.startsWith('A1 ')
+    const bulbasaur = preEvolutionFor('Bulbasaur', index, noA1, new Set())
+    expect(bulbasaur?.groupId).toBe('A1-1')
+    expect(bulbasaur?.edition.expansionId).not.toBe('A1')
   })
 
   it('the pool of a search under the event: the allowed trainers come in with their allowed edition', () => {

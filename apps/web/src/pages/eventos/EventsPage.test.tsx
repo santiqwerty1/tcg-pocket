@@ -75,17 +75,27 @@ it('Fase 16: the editions allowed outside the expansions, typed as codes, with t
   await user.click(screen.getByText('Solo estas expansiones'))
   await user.click(await screen.findByRole('button', { name: 'C1' }))
 
-  // Lower case and leading zeros are written as the catalog does; a word and an unknown code say why.
+  // Lower case and leading zeros are written as the catalog does.
   const field = screen.getByRole('textbox', { name: 'Ediciones permitidas aparte' })
-  await user.type(field, 'p-a-001, A2b-111 P-C-99 Poké')
+  await user.type(field, 'p-a-001')
   const read = await screen.findByRole('list', { name: 'Ediciones leídas' })
   expect(await within(read).findByText(/Poción/)).toBeInTheDocument()
-  expect(within(read).getByText(/Poké Ball/)).toBeInTheDocument()
-  expect(within(read).getByText(/Crown Rare/)).toBeInTheDocument()
   expect(within(read).getByText('P-A-1')).toBeInTheDocument()
+  // A code not looked up yet waits («…»): it is not «not in the catalog» before its own lookup answers.
+  await user.type(field, ', P-C-99')
+  expect(within(read).getByText('P-C-99').parentElement).toHaveTextContent('P-C-99 …')
+  expect(within(read).queryByText(/no está en el catálogo/)).not.toBeInTheDocument()
   expect(await within(read).findByText(/no está en el catálogo/)).toBeInTheDocument()
+  // A word says why; the Crown Rare with its rarity.
+  await user.type(field, ' A2b-111 Poké')
+  expect(await within(read).findByText(/Poké Ball/)).toBeInTheDocument()
+  expect(within(read).getByText(/Crown Rare/)).toBeInTheDocument()
   expect(within(read).getByText(/no es un código de carta/)).toBeInTheDocument()
-  expect(screen.queryByText(/Necesitan una regla de rarezas o de expansiones/)).not.toBeInTheDocument()
+  expect(screen.queryByText(/Necesita.? una regla de rarezas o de expansiones/)).not.toBeInTheDocument()
+  // Only codes that can be one are looked up.
+  const looked = calls.filter((call) => call.path === '/api/cards/batch').map((call) => call.query.get('ids') ?? '')
+  expect(looked.length).toBeGreaterThan(0)
+  expect(looked.some((ids) => ids.includes('Poké'))).toBe(false)
 
   await user.clear(field)
   await user.type(field, 'p-a-001, A2b-111')
@@ -96,14 +106,41 @@ it('Fase 16: the editions allowed outside the expansions, typed as codes, with t
     name: 'Partidas limitadas',
     rules: { expansions: ['C1'], allow: ['P-A-1', 'A2b-111'] },
   })
-  // The names were looked up once the typing stopped, in batches of known-looking codes only.
-  await waitFor(() =>
-    expect(
-      calls
-        .filter((call) => call.path === '/api/cards/batch')
-        .every((call) => !(call.query.get('ids') ?? '').includes('Poké')),
-    ).toBe(true),
+})
+
+it('codes typed before the expansions arrive are written as the catalog does once they do', async () => {
+  const user = userEvent.setup()
+  const { calls, fetchMock } = fakeApi({
+    'GET /api/events': { items: [] },
+    'GET /api/expansions': { items: [{ id: 'P-A', nameEn: 'Promo-A', nameEs: 'Promo-A' }] },
+    'GET /api/cards/batch': batch,
+  })
+  let release = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (url.includes('/api/expansions')) await gate
+    return fetchMock(input, init)
+  })
+  const router = createMemoryRouter([{ path: '/eventos', element: <EventsPage /> }], { initialEntries: ['/eventos'] })
+  render(
+    <Providers queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <RouterProvider router={router} />
+    </Providers>,
   )
+  await user.click(await screen.findByRole('button', { name: 'Nuevo' }))
+  const field = screen.getByRole('textbox', { name: 'Ediciones permitidas aparte' })
+  await user.type(field, 'p-a-001')
+  const read = screen.getByRole('list', { name: 'Ediciones leídas' })
+  expect(within(read).getByText('p-a-001')).toBeInTheDocument()
+  release()
+  expect(await within(read).findByText('P-A-1')).toBeInTheDocument()
+  expect(await within(read).findByText(/Poción/)).toBeInTheDocument()
+  // The field keeps what was typed.
+  expect(field).toHaveValue('p-a-001')
+  expect(calls.some((call) => call.path === '/api/cards/batch' && call.query.get('ids') === 'P-A-1')).toBe(true)
 })
 
 it('editing an event: the field starts with its allowed editions, and saving sends what was changed', async () => {
@@ -183,9 +220,20 @@ it('without an expansion or rarity rule, the allowed editions say they cannot be
   await user.type(screen.getByLabelText('Nombre'), 'Sin expansiones')
   const field = screen.getByRole('textbox', { name: 'Ediciones permitidas aparte' })
   await user.type(field, 'P-A-1')
+  expect(
+    screen.getByText(/^Necesita una regla de rarezas o de expansiones.*no se puede guardar\.$/),
+  ).toBeInTheDocument()
+  await user.type(field, ' P-A-2')
+  expect(
+    screen.getByText(/^Necesitan una regla de rarezas o de expansiones.*no se pueden guardar\.$/),
+  ).toBeInTheDocument()
+  // A rarity rule is an edition rule too.
+  await user.click(screen.getByRole('button', { name: '◊' }))
+  expect(screen.queryByText(/Necesita.? una regla de rarezas o de expansiones/)).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: '◊' }))
   expect(screen.getByText(/Necesitan una regla de rarezas o de expansiones/)).toBeInTheDocument()
   await user.clear(field)
-  expect(screen.queryByText(/Necesitan una regla de rarezas o de expansiones/)).not.toBeInTheDocument()
+  expect(screen.queryByText(/Necesita.? una regla de rarezas o de expansiones/)).not.toBeInTheDocument()
   expect(screen.queryByRole('list', { name: 'Ediciones leídas' })).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: 'Guardar' }))
   await waitFor(() => expect(calls.some((call) => call.method === 'POST')).toBe(true))

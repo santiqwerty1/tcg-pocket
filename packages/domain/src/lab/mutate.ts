@@ -326,6 +326,30 @@ export function eventEdition(
   )
 }
 
+/**
+ * The pre-evolution that comes along with a card to try (review of #64) when the pool lacks it: the first functional
+ * card named `pre` (English) outside `inPool`, with its `eventEdition`, or null when the engine plays none of it.
+ * Under an event, the first of them with an edition the event accepts: the first by name may have none (Inkay A4a-51
+ * in a «solo Fusión Dual» that allows Inkay P-C-4, when they are two functional cards).
+ */
+export function preEvolutionFor(
+  pre: string,
+  index: CatalogIndex,
+  engine: EngineStatus,
+  inPool: ReadonlySet<CardId>,
+  rules?: EventRules,
+): { groupId: CardId; edition: CardEdition } | null {
+  const named = index.catalog.groups.filter(
+    (group) => index.cardById(group.displayCardId)?.nameEn === pre && !inPool.has(group.id),
+  )
+  // Without an event, the first one only, as before.
+  for (const group of rules ? named : named.slice(0, 1)) {
+    const edition = eventEdition(group.id, index, engine, rules)
+    if (edition) return { groupId: group.id, edition }
+  }
+  return null
+}
+
 export function mutationPool(options: PoolOptions): PoolCard[] {
   const pool: PoolCard[] = []
   for (const group of options.index.catalog.groups) {
