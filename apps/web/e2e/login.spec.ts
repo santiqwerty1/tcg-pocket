@@ -102,14 +102,19 @@ test('is dark by default, also on a light system: it fits a phone, shows the foc
   await open(page)
   expect(await look(page)).toEqual(lookOf(DARK))
 
-  // The first field takes the focus, with the ring; with the keyboard the button shows it too, apart from its fill.
+  // The first field takes the focus, with the ring (checked by its longhands: Chromium 1.65 orders the `outline`
+  // shorthand differently); with the keyboard the button shows it too, apart from its fill.
   await expect(page.getByLabel('Correo')).toBeFocused()
-  await expect(page.getByLabel('Correo')).toHaveCSS('outline', `${DARK.ring} solid 2px`)
+  await expect(page.getByLabel('Correo')).toHaveCSS('outline-color', DARK.ring)
+  await expect(page.getByLabel('Correo')).toHaveCSS('outline-style', 'solid')
+  await expect(page.getByLabel('Correo')).toHaveCSS('outline-width', '2px')
   await expect(page.getByLabel('Correo')).toHaveCSS('border-color', DARK.ring)
   for (let stop = 0; stop < 3; stop++) await page.keyboard.press('Tab')
   const enter = page.getByRole('button', { name: 'Entrar' })
   await expect(enter).toBeFocused()
-  await expect(enter).toHaveCSS('outline', `${DARK.ring} solid 2px`)
+  await expect(enter).toHaveCSS('outline-color', DARK.ring)
+  await expect(enter).toHaveCSS('outline-style', 'solid')
+  await expect(enter).toHaveCSS('outline-width', '2px')
   await expect(enter).toHaveCSS('outline-offset', '2px')
 
   // Where the system forces its colours the fill of the button is gone: an edge of another colour keeps its shape.
@@ -172,7 +177,9 @@ test('is light from the first paint when «Claro» is chosen on this device, als
   await page.emulateMedia({ colorScheme: 'dark' })
   await open(page)
   expect(await look(page)).toEqual(lookOf(LIGHT))
-  await expect(page.getByLabel('Correo')).toHaveCSS('outline', `${LIGHT.ring} solid 2px`)
+  await expect(page.getByLabel('Correo')).toHaveCSS('outline-color', LIGHT.ring)
+  await expect(page.getByLabel('Correo')).toHaveCSS('outline-style', 'solid')
+  await expect(page.getByLabel('Correo')).toHaveCSS('outline-width', '2px')
 })
 
 test('follows the system when «Sistema» is chosen, in both directions', async ({ context, page }) => {

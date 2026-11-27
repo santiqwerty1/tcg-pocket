@@ -592,7 +592,7 @@ describe('sobres de promoción', () => {
     })
     expect(
       await screen.findByText(
-        /No hay un evento de sobres de promoción en curso, así que no hay batallas/,
+        /No hay un evento con batallas de promoción en curso, así que no hay ninguna para ganar/,
         {},
         {
           timeout: 5000,
@@ -607,6 +607,50 @@ describe('sobres de promoción', () => {
     expect(screen.queryByText(/victorias/)).toBeNull()
     expect(screen.queryByText('Cupones')).toBeNull()
     expect(screen.getByRole('heading', { name: 'Volúmenes' })).toBeInTheDocument()
+  })
+
+  it('27/11: C vol. 1 is labelled like the others, with its 8 cards (the Trainer too), and has no battle of its own', async () => {
+    const C1 = volume(
+      'C1',
+      [
+        card('P-C-2', 'Mega-Mewtwo Y ex', 0, { newCard: true }),
+        card('P-C-3', 'Deoxys', 0, { newCard: true }),
+        card('P-C-4', 'Inkay', 1),
+        card('P-C-5', 'Malamar', 0, { newCard: true }),
+        card('P-C-6', 'Cosmog', 2),
+        card('P-C-7', 'Cosmoem', 0, { newCard: true }),
+        card('P-C-8', 'Lunala', 0, { newCard: true }),
+        card('P-C-9', 'Conversor Genoma Y', 0, { newCard: true }),
+      ],
+      false,
+      26.5,
+    )
+    renderPromo({
+      event: null,
+      volumes: [{ ...B12, inEvent: false }, C1],
+      best: [],
+      pick: null,
+      totals: { volumes: 2, cards: 13, missing: 7, copiesMissing: 13, winsToComplete: 26.5 },
+      lastImportAt: COLLECTION_AT,
+    })
+    const list = (await screen.findByRole('heading', { name: 'Volúmenes' }, { timeout: 5000 })).closest(
+      'section',
+    ) as HTMLElement
+    const rows = within(list)
+      .getAllByRole('listitem')
+      .filter((item) => item.parentElement?.parentElement === list) as HTMLElement[]
+    expect(rows.map((row) => row.querySelector('span')?.textContent)).toEqual(['B vol. 12', 'C vol. 1'])
+    const c1 = rows[1] as HTMLElement
+    expect(within(c1).getByText('faltan 13 copias de 16')).toBeInTheDocument()
+    expect(within(c1).getAllByRole('listitem')).toHaveLength(8)
+    expect(within(c1).getByRole('link', { name: /Conversor Genoma Y/ })).toBeInTheDocument()
+    // No battle now: no wins to finish it.
+    expect(within(c1).queryByText(/victorias/)).toBeNull()
+    expect(
+      screen.getByText(
+        /^C vol\. 1 \(8 cartas\) no tiene una batalla propia: sus sobres salen de «Partidas limitadas de Fusión Dual»/,
+      ),
+    ).toBeInTheDocument()
   })
 
   it('without an event and with every promo, there is nothing missing', async () => {

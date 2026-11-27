@@ -945,6 +945,26 @@ describe('tournaments (e2e)', () => {
     expect((await get('/api/events')).body.items).toHaveLength(1)
     expect((await post('/api/events').send({ name: 'x', rules: { banned: ['ZZ-999'] } })).status).toBe(400)
     expect((await post('/api/events').send({ name: 'x', rules: { types: ['plasma'] } })).status).toBe(400)
+    // Editions allowed outside the expansions (as event 2, «Partidas limitadas de Fusión Dual»): kept without
+    // repeats and said in Spanish; an unknown edition, or one without an edition rule to lift, is refused.
+    const allowed = await patch(`/api/events/${id}`).send({
+      rules: { expansions: ['A4b'], allow: ['P-A-5', 'A2b-111', 'P-A-5'] },
+    })
+    expect(allowed.status).toBe(200)
+    expect(allowed.body.rules).toEqual({ expansions: ['A4b'], allow: ['P-A-5', 'A2b-111'] })
+    expect(allowed.body.rulesEs).toHaveLength(2)
+    expect(allowed.body.rulesEs[1]).toBe('Además, estas ediciones: Poké Ball (P-A-5 y A2b-111).')
+    expect((await get(`/api/events/${id}`)).body.rules.allow).toEqual(['P-A-5', 'A2b-111'])
+    const unknown = await patch(`/api/events/${id}`).send({ rules: { expansions: ['A4b'], allow: ['P-C-99'] } })
+    expect(unknown.status).toBe(400)
+    expect(unknown.body.error.message).toBe('Edición desconocida: P-C-99.')
+    const alone = await post('/api/events').send({ name: 'x', rules: { noEx: true, allow: ['P-A-5'] } })
+    expect(alone.status).toBe(400)
+    expect(alone.body.error.message).toContain('solo valen con una regla de expansiones o de rarezas')
+    expect(
+      (await post('/api/events').send({ name: 'x', rules: { expansions: ['A4b'], allow: ['P A 5'] } })).status,
+    ).toBe(400)
+    expect((await get(`/api/events/${id}`)).body.rules.allow).toEqual(['P-A-5', 'A2b-111'])
     expect((await test.http().delete(`/api/events/${id}`).set('Cookie', cookie)).status).toBe(204)
     expect((await get(`/api/events/${id}`)).status).toBe(404)
   })

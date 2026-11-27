@@ -482,12 +482,12 @@ El servidor revisa cada 15 s qué avisar (partida que espera tu jugada si no la 
 
 ## Eventos (Fase 16)
 
-Reglas de mazo de un evento del juego, cargadas a mano. `EventRules = { types?: EnergyType[], minOfType?: { type, count }, noEx?: boolean, rarities?: Rarity[], expansions?: string[], banned?: groupId[] }`.
+Reglas de mazo de un evento del juego, cargadas a mano. `EventRules = { types?: EnergyType[], minOfType?: { type, count }, noEx?: boolean, rarities?: Rarity[], expansions?: string[], allow?: cardId[], banned?: groupId[] }`. `allow` son ediciones (hasta 80) que cumplen `rarities` y `expansions` aunque estén afuera («solo Fusión Dual, y además Poción P-A-1»); los tipos, `noEx` y `banned` les siguen valiendo, y sin `rarities` ni `expansions` no se aceptan.
 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
 | `GET /api/events` | `{ items: Event[] }` con `Event = { id, name, startsOn | null, endsOn | null, rules, rulesEs: string[], notes, createdAt, updatedAt }` |
-| `POST /api/events` | `{ name, startsOn?, endsOn?, rules, notes? }` → `201 Event`; `400` si una carta prohibida o una expansión no existe |
+| `POST /api/events` | `{ name, startsOn?, endsOn?, rules, notes? }` → `201 Event`; `400` si una carta prohibida, una expansión o una edición de `allow` no existe, si una edición de `allow` es de una carta prohibida o si hay `allow` sin `rarities` ni `expansions` |
 | `GET /api/events/:id` | `Event & { decks: [{ id, name, builtInGame, ok, problems: string[] }] (los que cumplen primero), lists: [{ key, archetype, lists, rate, missingCopies, pokemon }] (listas exactas de la era que cumplen con cualquier edición, las armables primero, 20), era }` |
 | `PATCH /api/events/:id` | Cualquier campo de `POST` → `Event` |
 | `DELETE /api/events/:id` | `204` |

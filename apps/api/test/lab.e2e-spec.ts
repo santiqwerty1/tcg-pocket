@@ -2124,6 +2124,74 @@ describe('laboratorio (e2e)', () => {
     await post(`/api/simulations/${id}/cancel`)
   }, 60_000)
 
+  it('allowed editions (event 2): a card to try comes in with the edition the event allows outside its expansions', async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 3,
+      maxRounds: 1,
+      confirmGames: 0,
+      verifyGames: 0,
+      pool: 'collection',
+      probe: false,
+      byWeight: false,
+      confirmBot: null,
+    }
+    const index = test.app.get(CatalogService).requireIndex()
+    const start = (await get(`/api/decks/${deckIds[1]}`)).body as { cards: { card: { id: string } }[] }
+    // Only the expansions the list plays: it complies as it is.
+    const expansions = [...new Set(start.cards.map((entry) => index.cardById(entry.card.id)?.expansionId ?? ''))]
+    // Giovanni: every edition of it outside them, and A4b-334 is not the one shown (the Laboratorio's before).
+    const giovanni = index.cardsOfGroup('A1-223')
+    expect(giovanni.map((card) => card.id)).toContain('A4b-334')
+    expect(giovanni.every((card) => !expansions.includes(card.expansionId))).toBe(true)
+    expect(index.groupById('A1-223')?.displayCardId).not.toBe('A4b-334')
+    const ask = (eventId: string) =>
+      post('/api/lab/explore').send({
+        deck: { deckId: deckIds[1] },
+        size: 3,
+        config,
+        include: ['A1-223'],
+        dryRun: true,
+        eventId,
+      })
+    const only = await post('/api/events').send({ name: 'Solo lo de la lista', rules: { expansions } })
+    expect(only.status).toBe(201)
+    const refused = await ask(only.body.id)
+    expect(refused.status).toBe(400)
+    expect(refused.body.error.message).toMatch(
+      /^No se puede probar Giovanni.*: el evento «Solo lo de la lista» no la permite\.$/,
+    )
+    const allowing = await post('/api/events').send({
+      name: 'Con Giovanni',
+      rules: { expansions, allow: ['A4b-334'] },
+    })
+    expect(allowing.status).toBe(201)
+    const plan = await ask(allowing.body.id)
+    expect(plan.status).toBe(200)
+    const added = (plan.body.firstRound as { add: { cardId: string }[] }[]).flatMap((variant) => variant.add)
+    const giovannis = added.filter((line) => index.cardById(line.cardId)?.functionalGroupId === 'A1-223')
+    expect(giovannis.every((line) => line.cardId === 'A4b-334')).toBe(true)
+    // An engine that does not play the allowed edition: refused, saying so.
+    const engine = test.app.get(EngineStatusService)
+    const real = await engine.status()
+    const allowedEngineId = index.cardById('A4b-334')?.engineId
+    const spy = vi
+      .spyOn(engine, 'status')
+      .mockResolvedValue(((engineId: string) => (engineId === allowedEngineId ? false : real(engineId))) as typeof real)
+    try {
+      const unplayed = await ask(allowing.body.id)
+      expect(unplayed.status).toBe(400)
+      expect(unplayed.body.error.message).toMatch(
+        /^No se puede probar Giovanni.*: el motor no juega las ediciones que permite el evento «Con Giovanni»\.$/,
+      )
+    } finally {
+      spy.mockRestore()
+    }
+    for (const event of [only, allowing]) {
+      expect((await test.http().delete(`/api/events/${event.body.id}`).set('Cookie', cookie)).status).toBe(204)
+    }
+  })
+
   it('T-017 E4: a list added to a search in play plays its next round', async () => {
     const config = {
       gamesPerRival: 10,
