@@ -2,12 +2,21 @@ import { Fragment, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import type { GameRecord, WinRate } from '@/api/schemas'
 import { Badge } from '@/components/ui/badge'
-import { formatInterval, formatRateValue, formatRecord, formatSample } from '@/lib/matches'
+import { SAMPLE_NOUN, type SampleKind } from '@/lib/figure'
+import { formatInterval, formatRateValue, formatRecord, formatSample, ORIENTATIVE_BELOW } from '@/lib/matches'
 import { cn } from '@/lib/utils'
 
-export function OrientativeBadge() {
+/**
+ * «orientativo», with what it counted in its title: a rate's `sampleKind` (a tournament rate is decided on its lists,
+ * not on its games). Without a kind it counts own matches.
+ */
+export function OrientativeBadge({ kind = 'matches' }: { kind?: SampleKind }) {
   return (
-    <Badge variant="outline" className="text-warning" title="Menos de 30 partidas: orienta, no prueba">
+    <Badge
+      variant="outline"
+      className="text-warning"
+      title={`Menos de ${ORIENTATIVE_BELOW} ${SAMPLE_NOUN[kind]}: orienta, no prueba`}
+    >
       orientativo
     </Badge>
   )
@@ -57,7 +66,7 @@ export function RateHeadline({
       {rate ? (
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <RateDetails record={record} rate={rate} />
-          {rate.orientative ? <OrientativeBadge /> : null}
+          {rate.orientative ? <OrientativeBadge kind={rate.sampleKind} /> : null}
         </div>
       ) : null}
       {hint ? <div className="text-xs text-muted-foreground">{hint}</div> : null}
@@ -111,7 +120,7 @@ export function RateRows({ rows, empty = 'Sin partidas.' }: { rows: RateRow[]; e
                 {row.hint && row.rate ? ' ' : null}
                 {row.rate ? <RateDetails record={row.record} rate={row.rate} /> : null}
               </span>
-              {row.rate?.orientative ? <OrientativeBadge /> : null}
+              {row.rate?.orientative ? <OrientativeBadge kind={row.rate.sampleKind} /> : null}
             </div>
           ) : null}
         </li>

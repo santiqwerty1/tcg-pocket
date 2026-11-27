@@ -130,3 +130,39 @@ it('review of #87: under 30 matches the expected rate and «contra todos» say �
   expect(await screen.findByText(/\(n = 20, IC 50,9–\u206061,1 %, orientativo\)/)).toBeInTheDocument()
   expect(screen.getByText(/contra todos: 56,4 % \(n = 20, IC 49,5–\u206063,1 %, orientativo\)/)).toBeInTheDocument()
 })
+
+it('a cell of the table writes its n from the matches, short and with a space that does not break: «n 41»', async () => {
+  const [first, second] = MATRIX.archetypes
+  if (!first || !second) throw new Error('two archetypes')
+  fakeApi({
+    'GET /api/tournaments/matchups': {
+      ...MATRIX,
+      cells: [
+        {
+          a: first.archetype.id,
+          b: second.archetype.id,
+          record: { wins: 22, losses: 19, ties: 0 },
+          // The matches and what they were counted on differ, so the cell cannot write one for the other.
+          rate: {
+            source: 'tournament',
+            value: 53.7,
+            games: 41,
+            samples: 17,
+            sampleKind: 'matches',
+            ci95: [38.8, 67.9],
+            orientative: false,
+          },
+        },
+      ],
+    },
+  })
+  const router = createMemoryRouter(routes, { initialEntries: ['/torneos/matchups'] })
+  render(
+    <Providers queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <RouterProvider router={router} />
+    </Providers>,
+  )
+  const cell = await screen.findByTitle(/^Mega Lucario ex Lucario contra Mega Altaria ex Espeon: n = 41,/)
+  // Read as it is written: Testing Library would take the no-break space for a plain one.
+  expect(cell.textContent).toBe('53,7 %n 41')
+})

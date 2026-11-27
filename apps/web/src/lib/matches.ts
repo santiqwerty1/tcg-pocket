@@ -34,10 +34,23 @@ export function formatInterval([lo, hi]: readonly [number, number]): string {
   return `${intervalFormat.format(lo)}${RANGE_DASH}${intervalFormat.format(hi)}${PERCENT}`
 }
 
+/** «n = 10»; with the lists the games come from (a tournament rate), «n = 268 en 40 listas». */
+export function formatSampleOf(games: number, lists?: number | null): string {
+  const text = `n = ${formatNumber(games)}`
+  return lists == null ? text : `${text} en ${formatNumber(lists)} listas`
+}
+
 /** «n = 10» (tournament: «n = 268 en 40 listas»). */
 export function formatSample(rate: WinRate): string {
-  const games = `n = ${formatNumber(rate.games)}`
-  return rate.sampleKind === 'lists' ? `${games} en ${formatNumber(rate.samples)} listas` : games
+  return formatSampleOf(rate.games, rate.sampleKind === 'lists' ? rate.samples : null)
+}
+
+/**
+ * «n 47», «n 14.179»: the sample where there is no room for «n = 47» (a cell, the foot of a number, a deck's header).
+ * The space does not break. It is the only place that writes this form (lib/sourceText.test.ts).
+ */
+export function formatSampleShort(games: number): string {
+  return `n\u00a0${formatNumber(games)}`
 }
 
 /**

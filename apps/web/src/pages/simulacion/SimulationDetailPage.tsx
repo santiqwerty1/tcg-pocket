@@ -156,7 +156,7 @@ function MatrixResults({ job }: { job: JobDetail }) {
               <span className="w-6 shrink-0 pt-0.5 text-xs text-muted-foreground tabular">{position + 1}</span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">{snapshot?.label ?? `#${row.snapshot}`}</span>
-                {row.rate?.orientative ? <OrientativeBadge /> : null}
+                {row.rate?.orientative ? <OrientativeBadge kind={row.rate.sampleKind} /> : null}
               </span>
               <RateCell record={row.total} rate={row.rate} />
               <ChevronDownIcon
@@ -305,7 +305,7 @@ export function MatrixGrid({ job }: { job: { snapshots: Pick<Snapshot, 'id' | 'l
             {name(selected.a)} contra {name(selected.b)}
           </p>
           <RateCell record={selectedCell.record} rate={selectedCell.rate} />
-          {selectedCell.rate?.orientative ? <OrientativeBadge /> : null}
+          {selectedCell.rate?.orientative ? <OrientativeBadge kind={selectedCell.rate.sampleKind} /> : null}
         </div>
       ) : null}
       {outside.length > 0 ? (

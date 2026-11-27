@@ -271,6 +271,12 @@ export const routes: RouteObject[] = [
             handle: handle('Acerca de', '/mas'),
           },
           {
+            // The pieces of mock-up D with test data: reached from «Acerca de», not a row of the Menú.
+            path: 'mas/piezas',
+            lazy: page(() => import('@/pages/mas/PiecesPage'), 'PiecesPage'),
+            handle: handle('Piezas de la interfaz', '/mas/acerca'),
+          },
+          {
             path: 'mas/mano',
             lazy: page(() => import('@/pages/mas/HandCalculatorPage'), 'HandCalculatorPage'),
             handle: handle('Calculadora de mano', '/mas'),

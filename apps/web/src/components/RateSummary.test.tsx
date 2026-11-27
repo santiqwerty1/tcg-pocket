@@ -1,7 +1,7 @@
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
-import { RateDetails, RateRows } from './RateSummary'
+import { OrientativeBadge, RateDetails, RateHeadline, RateRows } from './RateSummary'
 
 const rate = {
   source: 'tournament' as const,
@@ -37,5 +37,63 @@ describe('rate details on a phone (phone review: a line started with «·»)', (
       </MemoryRouter>,
     )
     expect(container.textContent).toContain('33 listas · 114 V')
+  })
+})
+
+describe('«orientativo» says what it counted', () => {
+  it('own matches without a kind, the lists of a tournament rate, the games of a simulation', () => {
+    const { rerender } = render(<OrientativeBadge />)
+    expect(screen.getByText('orientativo')).toHaveAttribute('title', 'Menos de 30 partidas: orienta, no prueba')
+    rerender(<OrientativeBadge kind="matches" />)
+    expect(screen.getByText('orientativo')).toHaveAttribute('title', 'Menos de 30 partidas: orienta, no prueba')
+    // 70 games in 14 lists: the rate has more than 30 games and is still «orientativo».
+    rerender(<OrientativeBadge kind="lists" />)
+    expect(screen.getByText('orientativo')).toHaveAttribute('title', 'Menos de 30 listas: orienta, no prueba')
+    rerender(<OrientativeBadge kind="simulations" />)
+    expect(screen.getByText('orientativo')).toHaveAttribute(
+      'title',
+      'Menos de 30 partidas simuladas: orienta, no prueba',
+    )
+  })
+
+  it('a row and a headline take the kind from their rate, never from the number of games', () => {
+    const few = {
+      ...rate,
+      value: 35.7,
+      games: 70,
+      samples: 14,
+      ci95: [25.5, 47.4] as [number, number],
+      orientative: true,
+    }
+    const mine = { ...few, source: 'matches' as const, games: 8, samples: 8, sampleKind: 'matches' as const }
+    // Each of the two with a rate of each kind: one that always said «listas», or always «partidas», fails here.
+    render(
+      <MemoryRouter>
+        <RateRows
+          rows={[
+            { id: 'a', label: 'Arquetipo', record: { wins: 25, losses: 45, ties: 0 }, rate: few },
+            { id: 'b', label: 'Gyarados ex', record: { wins: 3, losses: 5, ties: 0 }, rate: mine },
+          ]}
+        />
+        <RateHeadline label="Mis partidas" record={{ wins: 3, losses: 5, ties: 0 }} rate={mine} />
+        <RateHeadline label="Arquetipo" record={{ wins: 25, losses: 45, ties: 0 }} rate={few} />
+      </MemoryRouter>,
+    )
+    expect(screen.getAllByText('orientativo').map((badge) => badge.getAttribute('title'))).toEqual([
+      'Menos de 30 listas: orienta, no prueba',
+      'Menos de 30 partidas: orienta, no prueba',
+      'Menos de 30 partidas: orienta, no prueba',
+      'Menos de 30 listas: orienta, no prueba',
+    ])
+  })
+
+  it('a rate that is not «orientativo» has no badge, whatever it counted', () => {
+    render(
+      <MemoryRouter>
+        <RateRows rows={[{ id: 'a', label: 'Mega Lucario ex', record, rate }]} />
+        <RateHeadline label="Torneo" record={record} rate={rate} />
+      </MemoryRouter>,
+    )
+    expect(screen.queryByText('orientativo')).not.toBeInTheDocument()
   })
 })

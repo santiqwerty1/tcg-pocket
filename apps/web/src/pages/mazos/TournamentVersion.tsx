@@ -33,7 +33,7 @@ function ListLine({ list, label }: { list: ListRow; label?: string }) {
       {list.rate ? (
         <div className="flex flex-wrap items-center justify-between gap-x-3 text-xs text-muted-foreground">
           <RateDetails record={list.record} rate={list.rate} />
-          {list.rate.orientative ? <OrientativeBadge /> : null}
+          {list.rate.orientative ? <OrientativeBadge kind={list.rate.sampleKind} /> : null}
         </div>
       ) : null}
     </div>

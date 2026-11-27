@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
 import { afterEach, expect, it, vi } from 'vitest'
 import { AboutPage } from './AboutPage'
 
@@ -30,7 +31,10 @@ function renderAbout(manifest: unknown) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={client}>
-      <AboutPage />
+      {/* The page links to another screen of the app. */}
+      <MemoryRouter>
+        <AboutPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }
@@ -59,4 +63,15 @@ it('points at the repository when this installation has no engine for the browse
     'https://github.com/santiqwerty1/tcg-pocket',
   )
   expect(screen.queryByRole('link', { name: /engine-src/ })).toBeNull()
+})
+
+it('leads to «Piezas de la interfaz», with what is there and a row tall enough to tap', async () => {
+  renderAbout(null)
+  const link = await screen.findByRole('link', { name: /^Piezas de la interfaz/ })
+  expect(link).toHaveAttribute('href', '/mas/piezas')
+  expect(link).toHaveTextContent('Cómo se ven los componentes nuevos, con datos de prueba')
+  // 56 px, as a row of the Menú: more than the 44 px a tap needs.
+  expect(link).toHaveClass('min-h-14')
+  // The one way into the gallery from this page.
+  expect(screen.getAllByRole('link').filter((item) => item.getAttribute('href') === '/mas/piezas')).toHaveLength(1)
 })
