@@ -5,10 +5,12 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-11-26 desde la etiqueta `v1.0.0` (447 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-11-27 desde la etiqueta `v1.0.0` (464 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- Promo-C Vol. 1 in Sobres de promoción `9b3b92f`
+- editions allowed outside the event's expansions `faec192`
 - mock-up D palette and the device's theme on the login page (#198) `21fa8d9`
 - phase 0b of mock-up D — the frame: column, header, tab bar, fixed row and the Menú (#193) `573836a`
 - phase 0a of mock-up D — tokens, theme, typography and fonts (#190) `787e481`
@@ -91,6 +93,9 @@ _Borrador generado al 2026-11-26 desde la etiqueta `v1.0.0` (447 commits). Escri
 
 ### Corregido
 
+- bound the held rows by estimated bytes; the e2e counts what is held (P-015) `8b00be2`
+- self-review of the allowed editions `b802a85`
+- read only new or changed rows for a search's detail (P-015) (R-014, #125) `fe7ebe4`
 - name the Menú and Pruebas in server and MCP texts; a tab's start opens without router state (#195) (#193) `292add0`
 - stock snapshot waits for a connection like any query; freeze cached tournament fields (R-014) (#191, H-015) `4332401`
 - a CLI takes at most 6 connections; pool tests on the real pg-pool (R-014) (#186) `8926d97`
@@ -298,6 +303,9 @@ _Borrador generado al 2026-11-26 desde la etiqueta `v1.0.0` (447 commits). Escri
 
 ### Documentado
 
+- decisions and API for the allowed editions' review `cac15cd`
+- the events' allowed editions `f1fd32f`
+- 26/11 — login (#198) deployed in 6fdc340 `95eb349`
 - 25/11 — #198 in main; number 71.58–71.69; the phase 1 plan `495b7c2`
 - 24/11 — phase 0 of mock-up D deployed (d88df8c); phase 1 approved; «Más →» becomes «Menú →» or its tab `c9d601d`
 - 24/11 — #195 in main; number 71.53–71.57 `3706f58`
@@ -457,6 +465,15 @@ _Borrador generado al 2026-11-26 desde la etiqueta `v1.0.0` (447 commits). Escri
 
 ### Mantenimiento
 
+- Bump the production group across 1 directory with 23 updates `5214128`
+- Bump body-parser from 2.3.0 to 2.4.0 `bff456b`
+- Bump fast-uri from 3.1.8 to 3.1.9 `29c2943`
+- Bump serialize-javascript from 7.1.2 to 7.1.4 `60ed179`
+- Bump qs from 6.16.0 to 6.17.1 `540e4b4`
+- Bump the development group across 1 directory with 13 updates `7628dba`
+- Bump systeminformation from 5.33.15 to 5.33.26 `0bd3703`
+- Bump actions/upload-artifact from 4 to 7 `6689b49`
+- adapt to biome 2.6 and Playwright 1.65 `3e7d2a4`
 - worker 0.3.16 with engine-cli 0.3.18 on ca13408, so the workers update themselves (D-031) `7a26b43`
 - Bump zod from 4.6.5 to 4.6.6 in /apps/web `e4747e5`
 - zod 4.6.6 in the API and the domain too, and the lockfile (the bump of #162 left them at 4.6.5) `3fbaf55`
