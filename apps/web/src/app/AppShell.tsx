@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils'
 import { FixedRow, ViewTabs } from './FixedRow'
 import { frameFor, isMenuPath } from './frame'
 import { FrameMemory, scrollWhenTallEnough } from './frameMemory'
+import { PageActionScope, type PageActionState, usePageActionHost } from './pageAction'
 import { TabBar } from './TabBar'
 
 export interface RouteHandle {
@@ -135,14 +136,28 @@ function MenuLink() {
 export function AppShell({ children }: { children?: ReactNode }) {
   // One memory per shell, for as long as it is mounted: a reload forgets where the tabs were.
   const [memory] = useState(() => new FrameMemory())
+  // What the page on screen says of the fixed row's action (`usePageAction`), for this path only.
+  const pageAction = usePageActionHost(useLocation().pathname)
   return (
     <FrameMemoryContext.Provider value={memory}>
-      <Frame memory={memory}>{children}</Frame>
+      <PageActionScope declare={pageAction.declare}>
+        <Frame memory={memory} declared={pageAction.declared}>
+          {children}
+        </Frame>
+      </PageActionScope>
     </FrameMemoryContext.Provider>
   )
 }
 
-function Frame({ memory, children }: { memory: FrameMemory; children?: ReactNode }) {
+function Frame({
+  memory,
+  declared,
+  children,
+}: {
+  memory: FrameMemory
+  declared: PageActionState | null
+  children?: ReactNode
+}) {
   const handle = useRouteHandle()
   const location = useLocation()
   const navigationType = useNavigationType()
@@ -159,10 +174,13 @@ function Frame({ memory, children }: { memory: FrameMemory; children?: ReactNode
   const title = override ?? handle?.title ?? 'TCG Pocket'
 
   const frame = frameFor(location.pathname)
+  // The route's action, unless the page on screen says it does not apply here: then there is no action, and no room
+  // is kept for one.
+  const action = declared?.hidden ? null : frame.action
   const inner = handle?.back !== undefined
   const viewsOnTop = frame.views !== null && look.views === 'top'
   const rowViews = viewsOnTop ? null : frame.views
-  const hasRow = rowViews !== null || frame.action !== null
+  const hasRow = rowViews !== null || action !== null
   // An address no route declares (the `*` route) is not a place a tab returns to.
   const known = !('*' in (matches[matches.length - 1]?.params ?? {}))
 
@@ -258,7 +276,7 @@ function Frame({ memory, children }: { memory: FrameMemory; children?: ReactNode
           data-row={hasRow ? '' : undefined}
           className="pointer-events-none fixed inset-x-0 bottom-0 z-30 mx-auto max-w-(--frame)"
         >
-          <FixedRow views={rowViews} viewsLabel={frame.viewsLabel} action={frame.action} />
+          <FixedRow views={rowViews} viewsLabel={frame.viewsLabel} action={action} page={declared} />
           <TabBar memory={memory} />
         </div>
         <Toaster />

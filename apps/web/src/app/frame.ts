@@ -12,6 +12,7 @@ import {
   LayersIcon,
   type LucideIcon,
   PlusIcon,
+  RefreshCwIcon,
   SunIcon,
   TrophyIcon,
 } from 'lucide-react'
@@ -23,10 +24,41 @@ export interface FrameView {
   path: string
 }
 
-export interface FrameAction {
+/** The parameters of a route pattern, by name («deckId» of `/mazos/:deckId`), decoded. */
+export type RouteParams = Readonly<Record<string, string>>
+
+interface RowActionBase {
+  /** The visible text. Next to the views, with `display` 'auto', it is the name of the icon (unless `ariaLabel`). */
   label: string
-  icon: LucideIcon
-  to: string
+  /** The accessible name, when it says more than the label: «Registrar partida con este mazo». It starts with it. */
+  ariaLabel?: string
+  /** Optional only on a route without views: next to them, with `display` 'auto', the icon is all there is. */
+  icon?: LucideIcon
+  /** Next to the views: 'auto' (the default), the icon alone, 48 × 48; 'text', its icon and its text. */
+  display?: 'auto' | 'text'
+  /** What a screen reader hears while it works («Sincronizando…»); the page can say it better. */
+  pendingLabel?: string
+}
+
+/**
+ * The action of the fixed row on a route, as the frame knows it from the path alone: what it says and where it goes.
+ * What only the page knows (the handler of a button, a request on its way, a deck that is archived, a label from its
+ * data) the page declares with `usePageAction` (`app/pageAction.tsx`).
+ */
+export type RowActionSpec = RowActionBase &
+  (
+    | { kind: 'link'; to: (params: RouteParams) => string }
+    | {
+        kind: 'button'
+        /** It opens a dialog or a sheet: `aria-haspopup`. */
+        opens?: 'dialog'
+      }
+  )
+
+/** The action of the row on the path at hand: its spec and the parameters its pattern took from the path. */
+export interface FrameAction {
+  spec: RowActionSpec
+  params: RouteParams
 }
 
 export interface FrameTab {
@@ -100,10 +132,46 @@ export const TABS: readonly FrameTab[] = [
   },
 ]
 
-/** The action of the fixed row, by exact path. */
-const ROW_ACTIONS: Readonly<Record<string, FrameAction>> = {
-  '/mazos': { label: 'Nuevo mazo', icon: PlusIcon, to: '/mazos/nuevo' },
-}
+/**
+ * The action of the fixed row, by route pattern (as `routes.tsx` writes them, with a leading «/»). `where` says what a
+ * parameter has to look like: `/mazos/:deckId` is a deck only with digits, so the screens next to it (`/mazos/nuevo`,
+ * `/mazos/importar`, `/mazos/hoy`, `/mazos/despues`) are not taken for one. The first pattern that matches wins.
+ */
+export const ROW_ACTIONS: readonly {
+  pattern: string
+  where?: Readonly<Record<string, RegExp>>
+  spec: RowActionSpec
+}[] = [
+  { pattern: '/mazos', spec: { label: 'Nuevo mazo', icon: PlusIcon, kind: 'link', to: () => '/mazos/nuevo' } },
+  {
+    pattern: '/mazos/:deckId',
+    where: { deckId: /^\d+$/ },
+    // It opens Hoy with the deck chosen; an archived deck hides it (`DeckDetailPage`).
+    spec: {
+      label: 'Registrar partida',
+      ariaLabel: 'Registrar partida con este mazo',
+      icon: PlusIcon,
+      kind: 'link',
+      to: ({ deckId = '' }) => `/partidas?mazo=${encodeURIComponent(deckId)}`,
+    },
+  },
+  {
+    pattern: '/coleccion',
+    // The page gives it its handler and says with what it syncs (`CollectionPage`).
+    spec: {
+      label: 'Sincronizar',
+      ariaLabel: 'Sincronizar la colección',
+      icon: RefreshCwIcon,
+      display: 'text',
+      kind: 'button',
+      pendingLabel: 'Sincronizando…',
+    },
+  },
+  {
+    pattern: '/simulacion',
+    spec: { label: 'Nueva simulación', icon: PlusIcon, kind: 'link', to: () => '/simulacion/nueva' },
+  },
+]
 
 /**
  * Paths that light their tab without becoming «where the tab was»: in D a card is a sheet, never a place, so a card
@@ -144,6 +212,45 @@ export function normalizePath(pathname: string): string {
   return path === '' ? '/' : path
 }
 
+/**
+ * The parameters a route pattern takes from a path, or null when it does not match. As the router: the segments of the
+ * pattern are compared without case, the query and the fragment do not count, trailing slashes neither; a parameter
+ * takes one whole segment, never an empty one, and comes decoded and in the case it was written.
+ */
+export function matchPattern(pattern: string, path: string): Record<string, string> | null {
+  const segments = (value: string) => (value.split(/[?#]/)[0] ?? '').replace(/\/+$/, '').split('/')
+  const wanted = segments(pattern)
+  const given = segments(path)
+  if (wanted.length !== given.length) return null
+  const params: Record<string, string> = {}
+  for (const [at, part] of wanted.entries()) {
+    const value = given[at] ?? ''
+    if (part.startsWith(':')) {
+      if (value === '') return null
+      try {
+        params[part.slice(1)] = decodeURIComponent(value)
+      } catch {
+        // A «%» that is not an escape: no screen has that address.
+        return null
+      }
+    } else if (part.toLowerCase() !== value.toLowerCase()) {
+      return null
+    }
+  }
+  return params
+}
+
+/** The action of the fixed row on a path, with the parameters of its pattern; null where the route has none. */
+function actionFor(pathname: string): FrameAction | null {
+  for (const { pattern, where, spec } of ROW_ACTIONS) {
+    const params = matchPattern(pattern, pathname)
+    if (params && Object.entries(where ?? {}).every(([name, shape]) => shape.test(params[name] ?? ''))) {
+      return { spec, params }
+    }
+  }
+  return null
+}
+
 /** A prefix matches the path itself or the path followed by `/`. */
 function under(path: string, prefix: string): boolean {
   return path === prefix || path.startsWith(`${prefix}/`)
@@ -159,7 +266,7 @@ export interface Frame {
   /** The views of this screen, only when the path is exactly one of them. */
   views: readonly FrameView[] | null
   viewsLabel: string | null
-  /** The action of the fixed row. */
+  /** The action of the fixed row, from the route alone: the page may still hide it (`usePageAction`). */
   action: FrameAction | null
   /** Whether the tab remembers this place. */
   remember: boolean
@@ -173,7 +280,7 @@ export function frameFor(pathname: string): Frame {
     tab,
     views: isView ? (tab?.views ?? null) : null,
     viewsLabel: isView ? (tab?.viewsLabel ?? null) : null,
-    action: ROW_ACTIONS[path] ?? null,
+    action: actionFor(pathname),
     remember: tab !== null && !NOT_REMEMBERED.some((prefix) => under(path, prefix)),
   }
 }

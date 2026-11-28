@@ -3,7 +3,7 @@
  * which workers are online. Simulated results stay here and in their own column of the deck comparison; they never
  * mix with own matches or tournaments.
  */
-import { ArchiveIcon, ArchiveRestoreIcon, ArrowLeftIcon, CpuIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { ArchiveIcon, ArchiveRestoreIcon, ArrowLeftIcon, CpuIcon, Trash2Icon } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
@@ -290,12 +290,7 @@ export function SimulacionPage() {
               <Button variant="outline" size="sm" asChild>
                 <Link to="/simulacion/analisis">Análisis</Link>
               </Button>
-              <Button asChild size="sm">
-                <Link to="/simulacion/nueva">
-                  <PlusIcon data-icon="inline-start" />
-                  Nueva
-                </Link>
-              </Button>
+              {/* «Nueva» is the «+» of the fixed row (`frame.ts`). */}
             </div>
           )
         }

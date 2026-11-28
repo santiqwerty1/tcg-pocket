@@ -88,9 +88,9 @@ const MOTION_LEVELS: SegmentedOption<MotionLevel>[] = [
   { value: 'none', label: 'Ninguno' },
 ]
 
-// D's first label, «Abajo, con la acción», comes back when a screen with views has an action too.
+// D's labels: since Simulación and Colección have views and an action, the views go «with the action» (71.46).
 const VIEWS_PLACES: SegmentedOption<ViewsPlace>[] = [
-  { value: 'bottom', label: 'Abajo, en la fila fija' },
+  { value: 'bottom', label: 'Abajo, con la acción' },
   { value: 'top', label: 'Arriba, en pestañas' },
 ]
 
@@ -262,8 +262,8 @@ function Look() {
               <p id={viewsId} className={FINE}>
                 Las de Cartas, Meta y Pruebas.{' '}
                 {look.views === 'bottom'
-                  ? 'Abajo: en la fila fija, arriba de la barra.'
-                  : 'Arriba: pestañas pegadas bajo el encabezado.'}
+                  ? 'Abajo: en la fila fija, arriba de la barra, junto a la acción cuando la pantalla tiene una.'
+                  : 'Arriba: pestañas pegadas bajo el encabezado; la fila fija queda para la acción, con su texto.'}
               </p>
             </>
           )}

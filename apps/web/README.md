@@ -6,10 +6,10 @@ El marco es el de la maqueta D (`docs/prototipos/renovacion-ui/DIRECCION-D.md`),
 
 - **Encabezado**: el título y, a la derecha, el camino al Menú con el punto de los avisos. Una pantalla interior lleva «Volver», que sube a la pantalla de arriba cuando no hay una de la app detrás.
 - **Barra de pestañas**: Hoy · Mazos · Cartas · Meta · Pruebas y la lupa del buscador (también con «/»). Cada pestaña recuerda dónde estaba; tocar la que está encendida lleva a su inicio.
-- **Fila fija**, arriba de la barra: las vistas de la pantalla (Cartas: Sobres y Colección; Meta: Torneos y Eventos; Pruebas: Laboratorio, Simulación y Practicar) y su acción («Nuevo mazo» en Mazos).
+- **Fila fija**, arriba de la barra: las vistas de la pantalla (Cartas: Sobres y Colección; Meta: Torneos y Eventos; Pruebas: Laboratorio, Simulación y Practicar) y su acción: «Nuevo mazo» en Mazos, «Registrar partida» en un mazo (no en uno archivado), el «+» de Simulación y «Sincronizar» en Colección. Junto a las vistas la acción es su ícono solo, de 48 × 48, salvo «Sincronizar», que conserva su texto; sola en la fila va con su texto, a todo el ancho.
 - **Menú** (`/mas`): los avisos, las pantallas que la maqueta todavía no ubica, «Aspecto» y «Ajustes y sistema».
 
-El aspecto se elige en cada dispositivo, en Menú → Aspecto: el tema (oscuro por defecto, claro o el del sistema), el movimiento (Expresivo, Sutil o Ninguno; queda en Ninguno cuando el sistema pide reducirlo) y dónde van las vistas (abajo, en la fila fija, o arriba, en pestañas bajo el encabezado).
+El aspecto se elige en cada dispositivo, en Menú → Aspecto: el tema (oscuro por defecto, claro o el del sistema), el movimiento (Expresivo, Sutil o Ninguno; queda en Ninguno cuando el sistema pide reducirlo) y dónde van las vistas (abajo, con la acción, o arriba, en pestañas bajo el encabezado).
 
 ## Correr en desarrollo
 
@@ -48,7 +48,8 @@ La API sirve `dist/` detrás del middleware de sesión (`WEB_DIST`).
 | Fixtures de respuestas realistas (ids reales como `B2-113`, `B3b-64`) | `src/api/__fixtures__/` |
 | Rutas (las pantallas pesadas se cargan al abrirlas) y errores de pantalla en español | `src/app/routes.tsx`, `src/app/RouteError.tsx` |
 | El marco: encabezado, «Volver» (`useGoBack`), barra de pestañas y fila fija | `src/app/AppShell.tsx`, `src/app/TabBar.tsx`, `src/app/FixedRow.tsx` |
-| Qué pestaña, qué vistas y qué acción tiene cada ruta (una sola tabla) y lo que el marco recuerda mientras está abierto | `src/app/frame.ts`, `src/app/frameMemory.ts` |
+| Qué pestaña, qué vistas y qué acción tiene cada ruta (una sola tabla, la acción por patrón de ruta) y lo que el marco recuerda mientras está abierto | `src/app/frame.ts`, `src/app/frameMemory.ts` |
+| Lo que solo la página sabe de la acción de su fila (`usePageAction`: el manejador de un botón, «trabajando», escondida, un texto de sus datos) y la acción misma, que también dibuja la galería | `src/app/pageAction.tsx`, `src/app/RowAction.tsx` |
 | La barra que una página deja siempre a mano («Guardar partida», «Guardar» del editor) | `src/components/StickyActions.tsx` |
 | Páginas | `src/pages/*/` (partidas = «Hoy», mazos, coleccion, cartas, sobres, torneos, simulacion, laboratorio, jugar, eventos, mas = el Menú y sus páginas) |
 | Componentes propios (`Stat` con n e IC 95 %, chips de energía, stepper, estados de lista) | `src/components/` |

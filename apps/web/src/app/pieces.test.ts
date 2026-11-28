@@ -50,6 +50,8 @@ const PIECES: Record<string, Piece> = {
   'components/figures/SourceSeal.tsx': { slots: ['source-seal'] },
   // Where the parts of a chart go: numbers only, it draws nothing.
   'components/figures/scale.ts': { slots: [] },
+  // The action of the fixed row, and the look of the row around it: the row draws it, and so does the gallery.
+  'app/RowAction.tsx': { slots: ['row-action'] },
 }
 /** The folders that hold nothing but pieces: a source in one of them that is not listed above fails. */
 const FOLDERS = ['components/figures'] as const

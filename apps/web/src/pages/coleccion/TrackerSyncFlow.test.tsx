@@ -2,7 +2,7 @@ import { QueryClient } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import summary from '@/api/__fixtures__/collection-summary.json'
 import fixture from '@/api/__fixtures__/import-preview.json'
 import { Providers } from '@/app/Providers'
@@ -53,7 +53,7 @@ describe('tracker sync screen', () => {
     })
     const user = userEvent.setup()
     const router = renderAt('/coleccion')
-    await user.click(await screen.findByRole('button', { name: 'Sincronizar con el tracker' }))
+    await user.click(await screen.findByRole('button', { name: 'Sincronizar la colección con el tracker' }))
     await waitFor(() => expect(router.state.location.pathname).toBe(`/coleccion/importar/${preview.id}`))
     expect(await screen.findByText(/Bajan más del 10 %/)).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Cambios (4)' })).toBeInTheDocument()
@@ -102,5 +102,85 @@ describe('tracker sync screen', () => {
     await waitFor(() => expect(calls.some((c) => c.path === '/api/settings/trackerFriendId')).toBe(true))
     await user.click(screen.getByRole('switch', { name: 'Sincronizar automáticamente cada 6 horas' }))
     await waitFor(() => expect(calls.some((c) => c.path === '/api/settings/trackerAutoSync')).toBe(true))
+  })
+})
+
+describe('«Sincronizar», in the fixed row', () => {
+  // The toast captures the pointer, which jsdom lacks.
+  beforeAll(() => {
+    Element.prototype.setPointerCapture ??= () => undefined
+    Element.prototype.releasePointerCapture ??= () => undefined
+    Element.prototype.hasPointerCapture ??= () => false
+  })
+
+  const PREVIEW = '/api/collection/tracker-sync/preview'
+  const row = () => document.querySelector('[data-slot="fixed-row"]') as HTMLElement
+
+  it('asks for the preview only when tapped, once while it is on its way, saying so, and then opens it', async () => {
+    const { calls, fetchMock } = fakeApi({
+      'GET /api/collection/summary': { ...summary, lastImportAt: new Date().toISOString() },
+      'POST /api/collection/tracker-sync/preview': preview,
+      [`GET /api/collection/imports/${preview.id}`]: preview,
+    })
+    // The preview waits until the test lets it go; everything else answers at once.
+    let release = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let asked = 0
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes(PREVIEW)) {
+        asked += 1
+        await held
+      }
+      return fetchMock(input, init)
+    })
+    const user = userEvent.setup()
+    const router = renderAt('/coleccion')
+    const sync = await screen.findByRole('button', { name: 'Sincronizar la colección con el tracker' })
+    expect(row()).toContainElement(sync)
+    expect(sync).toHaveTextContent(/^Sincronizar$/)
+    // The page's own button is gone: this is the only way to sync from here.
+    expect(screen.getAllByRole('button', { name: /^Sincronizar/ })).toEqual([sync])
+    // Nothing is asked before the tap.
+    expect(asked).toBe(0)
+
+    await user.click(sync)
+    await waitFor(() => expect(sync).toHaveAttribute('aria-busy', 'true'))
+    expect(sync).toHaveAttribute('aria-disabled', 'true')
+    expect(sync.querySelector('svg')).toHaveClass('animate-spin')
+    expect(within(row()).getByRole('status')).toHaveTextContent('Consultando el tracker…')
+    // A second tap while it works asks for nothing.
+    await user.click(sync)
+    expect(asked).toBe(1)
+
+    release()
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/coleccion/importar/${preview.id}`))
+    expect(calls.filter((call) => call.path === PREVIEW)).toHaveLength(1)
+    expect(calls.find((call) => call.path === PREVIEW)?.method).toBe('POST')
+    // The preview page keeps its own bar («Aplicar», «Descartar»): no row of the frame there.
+    expect(await screen.findByRole('heading', { name: 'Cambios (4)' })).toBeInTheDocument()
+    expect(document.querySelector('[data-slot="fixed-row"]')).toBeNull()
+  })
+
+  it('an error is a toast with what the API says, and the button can be tapped again', async () => {
+    const { calls } = fakeApi({
+      'GET /api/collection/summary': summary,
+      'POST /api/collection/tracker-sync/preview': () =>
+        new Response(JSON.stringify({ error: { code: 'tracker_down', message: 'El tracker no responde' } }), {
+          status: 502,
+        }),
+    })
+    const user = userEvent.setup()
+    const router = renderAt('/coleccion')
+    const sync = await screen.findByRole('button', { name: 'Sincronizar la colección con el tracker' })
+    await user.click(sync)
+    expect(await screen.findByText('El tracker no responde')).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/coleccion')
+    await waitFor(() => expect(sync).not.toHaveAttribute('aria-busy'))
+    expect(sync).not.toHaveAttribute('aria-disabled')
+    expect(within(row()).getByRole('status')).toHaveTextContent('')
+    await user.click(sync)
+    await waitFor(() => expect(calls.filter((call) => call.path === PREVIEW)).toHaveLength(2))
   })
 })

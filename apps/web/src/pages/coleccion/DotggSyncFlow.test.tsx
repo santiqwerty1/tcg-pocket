@@ -148,8 +148,8 @@ describe('a stored link that cannot be opened', () => {
     renderAt('/coleccion')
     expect(await screen.findByText('El link de ptcgpocket.gg guardado no se puede leer')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /no se puede leer/ })).toHaveAttribute('href', '/mas/ajustes')
-    expect(screen.getByRole('button', { name: 'Sincronizar con el juego' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Sincronizar con el tracker' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sincronizar la colección con el juego' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Sincronizar la colección con el tracker' })).not.toBeInTheDocument()
   })
 
   it('the settings say the tracker stays paused and offer to remove it', async () => {
@@ -178,8 +178,8 @@ describe('sync with the game', () => {
     const user = userEvent.setup()
     const router = renderAt('/coleccion')
     expect(await screen.findByRole('link', { name: /Tracker al día/ })).toHaveAttribute('href', '/coleccion/tracker')
-    expect(screen.queryByRole('button', { name: 'Sincronizar con el tracker' })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Sincronizar con el juego' }))
+    expect(screen.queryByRole('button', { name: 'Sincronizar la colección con el tracker' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Sincronizar la colección con el juego' }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/coleccion/importar/41'))
     expect(await screen.findByText(/primera sincronización/)).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Cartas que el catálogo no tiene (1)' })).toBeInTheDocument()
@@ -202,13 +202,40 @@ describe('sync with the game', () => {
     expect(calls.some((c) => c.path === '/api/collection/imports/41/apply')).toBe(false)
   })
 
+  it('while the game is asked, the row says so: «Consultando ptcgpocket.gg…»', async () => {
+    const { fetchMock } = fakeApi({
+      'GET /api/collection/summary': summary,
+      'GET /api/collection/dotgg/status': { ...status, configured: true, link: '…token=••••abcd' },
+      'POST /api/collection/dotgg/preview': preview,
+      'GET /api/collection/imports/41': preview,
+    })
+    let release = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/api/collection/dotgg/preview')) await held
+      return fetchMock(input, init)
+    })
+    const user = userEvent.setup()
+    const router = renderAt('/coleccion')
+    await screen.findByRole('link', { name: /Tracker al día/ })
+    const sync = screen.getByRole('button', { name: 'Sincronizar la colección con el juego' })
+    await user.click(sync)
+    const row = document.querySelector('[data-slot="fixed-row"]') as HTMLElement
+    await waitFor(() => expect(within(row).getByRole('status')).toHaveTextContent('Consultando ptcgpocket.gg…'))
+    expect(sync).toHaveAttribute('aria-busy', 'true')
+    release()
+    await waitFor(() => expect(router.state.location.pathname).toBe('/coleccion/importar/41'))
+  })
+
   it('without the link, Collection keeps the tracker button', async () => {
     fakeApi({
       'GET /api/collection/summary': summary,
       'GET /api/collection/dotgg/status': status,
     })
     renderAt('/coleccion')
-    expect(await screen.findByRole('button', { name: 'Sincronizar con el tracker' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Sincronizar la colección con el tracker' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Tracker al día/ })).not.toBeInTheDocument()
   })
 })

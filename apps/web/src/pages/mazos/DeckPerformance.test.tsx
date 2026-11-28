@@ -226,19 +226,13 @@ const stats = (revisions: number, more: Partial<Stats> = {}) =>
     ...more,
   })
 
-function show(routes: Parameters<typeof fakeApi>[0], props: { archived?: boolean; archetype?: string | null } = {}) {
+function show(routes: Parameters<typeof fakeApi>[0], props: { archetype?: string | null } = {}) {
   const api = fakeApi(routes)
   const router = createMemoryRouter(
     [
       {
         path: '/mazos/:id',
-        element: (
-          <DeckPerformance
-            deckId="40"
-            archived={props.archived ?? false}
-            tournamentArchetypeId={props.archetype ?? null}
-          />
-        ),
+        element: <DeckPerformance deckId="40" tournamentArchetypeId={props.archetype ?? null} />,
       },
     ],
     { initialEntries: ['/mazos/40'] },
@@ -690,18 +684,13 @@ describe('point 6: the section asks for what it asked before, and for nothing mo
 })
 
 describe('what the section had and keeps', () => {
-  it('its title and the way to log a match with this deck; an archived deck has no such way', async () => {
+  it('its title; the way to log a match with the deck is no longer the section’s, but the fixed row’s', async () => {
     show({ 'GET /api/decks/40/comparison': comparison(MINE, TOURNAMENT_NONE, BOTS) })
-    await sources()
-    expect(screen.getByRole('heading', { level: 2, name: 'Rendimiento' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Registrar partida' })).toHaveAttribute('href', '/partidas?mazo=40')
-  })
-
-  it('an archived deck keeps its numbers and has no «Registrar partida»', async () => {
-    show({ 'GET /api/decks/40/comparison': comparison(MINE, TOURNAMENT_NONE, BOTS) }, { archived: true })
     expect(blocks(await sources())).toHaveLength(3)
     expect(screen.getByRole('heading', { level: 2, name: 'Rendimiento' })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Registrar partida' })).toBeNull()
+    // The 36 px link of its header went to the row (`frame.ts`), where it is a link of 48 px with its text.
+    expect(screen.queryByRole('link', { name: /Registrar partida/ })).toBeNull()
+    expect(document.querySelector('a[href^="/partidas?mazo="]')).toBeNull()
   })
 
   it('while the comparison comes it says so, with a row for each source, and then the blocks take its place', async () => {

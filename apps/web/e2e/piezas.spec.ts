@@ -192,15 +192,56 @@ function measure(page: Page, scope: string) {
           },
         ),
       ),
-      tappable: all('a, button, input, select, textarea, [role="button"], [tabindex]').length,
+      // What a finger could tap outside the drawings of the row, and the controls inside them, which take none.
+      tappable: all('a, button, input, select, textarea, [role="button"], [tabindex]').filter(
+        (element) => element.closest('[inert]') === null,
+      ).length,
+      drawnControls: all('[inert] :is(a, button, [tabindex])').length,
+      rowDrawings: all('[data-drawing="fixed-row"]').map((drawing) => {
+        const edges = drawing.getBoundingClientRect()
+        const action = drawing.querySelector('[data-slot="row-action"]')?.getBoundingClientRect()
+        const views = [...drawing.querySelectorAll('[data-drawing="view"]')].map((view) => view.getBoundingClientRect())
+        return {
+          ...box(drawing),
+          inert: (drawing as HTMLElement).inert,
+          // Everything inside its box (5 px of padding and 1 of edge), and no view under the action.
+          inside:
+            action !== undefined &&
+            [action, ...views].every((part) => part.left >= edges.left + 5.5 && part.right <= edges.right - 5.5),
+          apart: views.every((view) => action !== undefined && view.right <= action.left + 0.5),
+        }
+      }),
+      rowActions: all('[data-slot="row-action"]').map((element) => {
+        const icon = element.querySelector('svg')
+        return {
+          ...box(element),
+          layout: element.getAttribute('data-layout'),
+          text: (element as HTMLElement).innerText.trim(),
+          spills: element.scrollWidth - element.clientWidth,
+          // On how many lines its text is written: a text that keeps it is on one.
+          lines: (() => {
+            const written = [...element.childNodes].find((node) => node.nodeType === Node.TEXT_NODE)
+            if (!written) return 0
+            const range = document.createRange()
+            range.selectNodeContents(written)
+            return new Set([...range.getClientRects()].map((line) => Math.round(line.top))).size
+          })(),
+          // By its own size: a spinning icon's box grows with the turn.
+          icon: icon ? { width: px(icon, 'width'), height: px(icon, 'height') } : null,
+          spinning: icon ? getComputedStyle(icon).animationName !== 'none' : false,
+          type: px(element, 'fontSize'),
+          inert: element.closest('[inert]') !== null,
+        }
+      }),
+      rowViews: all('[data-drawing="view"]').map((view) => ({ ...box(view), type: px(view, 'fontSize') })),
     }
   }, scope)
 }
 
 /** How many of each piece the gallery draws (the same numbers as src/pages/mas/PiecesPage.test.tsx). */
 const DRAWN = {
-  sections: 8,
-  notices: 9,
+  sections: 9,
+  notices: 10,
   seals18: 40,
   seals16: 20,
   orientative: 16,
@@ -215,6 +256,9 @@ const DRAWN = {
   laneBlocks: 7,
   legends: 6,
   middleTicks: 3,
+  rowDrawings: 6,
+  rowActions: 6,
+  rowViews: 9,
 }
 /** The ring of the surface around the point of a chart, which is drawn over the tick (MiniCharts, IntervalBar). */
 const RING = 2
@@ -352,14 +396,147 @@ for (const theme of THEMES) {
       await expect(long).toContainText('Mega-Gardevoir ex / Gallade con Dedenne ex y Caramelo Raro')
       expect((await long.boundingBox())?.height ?? 0).toBeGreaterThan(30)
 
-      // It is a page to look at: nothing in it to tap, so nothing smaller than a finger.
+      // The action of the row, in each of its looks: 48 px tall, the «+» 48 × 48, «Sincronizar» whole beside two
+      // views, a full one as wide as its row lets it; its text at 17 px and the views at 15.
+      expect(seen.rowDrawings).toHaveLength(DRAWN.rowDrawings)
+      for (const drawing of seen.rowDrawings) {
+        expect(drawing, JSON.stringify(drawing)).toMatchObject({ height: 60, inert: true, inside: true, apart: true })
+        // As wide as the frame's row at this width: 12 px from each side of the column.
+        expect(drawing.width, JSON.stringify(drawing)).toBeCloseTo(Math.min(width, COLUMN) - 24, 0)
+      }
+      expect(seen.rowActions.map((item) => item.layout)).toEqual(['full', 'icon', 'text', 'text', 'text', 'full'])
+      for (const item of seen.rowActions) {
+        expect(item.height, JSON.stringify(item)).toBe(48)
+        expect(item.spills, JSON.stringify(item)).toBeLessThanOrEqual(0)
+        expect(item.inert, JSON.stringify(item)).toBe(true)
+        expect(item.type, JSON.stringify(item)).toBe(17)
+      }
+      const [full, plus, sync, working, idle, update] = seen.rowActions
+      expect(plus).toMatchObject({ width: 48, text: '', lines: 0, icon: { width: 24, height: 24 } })
+      for (const item of [full, sync, working, idle, update]) expect(item?.lines, JSON.stringify(item)).toBe(1)
+      for (const item of [sync, working, idle]) {
+        expect(item?.text).toBe('Sincronizar')
+        expect(item?.width ?? 0).toBeGreaterThan(120)
+        expect(item?.icon).toMatchObject({ width: 20, height: 20 })
+      }
+      expect(working?.spinning).toBe(true)
+      expect(sync?.spinning).toBe(false)
+      expect(full?.text).toBe('Registrar partida')
+      expect(full?.width ?? 0).toBeCloseTo((seen.rowDrawings[0]?.width ?? 0) - 12, 0)
+      expect(update).toMatchObject({ text: 'Actualizar el mazo #1', icon: null })
+      expect(idle?.text).toBe('Sincronizar')
+      expect(seen.rowViews).toHaveLength(DRAWN.rowViews)
+      for (const view of seen.rowViews) {
+        expect(view.height, JSON.stringify(view)).toBe(48)
+        expect(view.width, JSON.stringify(view)).toBeGreaterThanOrEqual(60)
+        expect(view.type, JSON.stringify(view)).toBe(15)
+      }
+
+      // It is a page to look at: nothing in it to tap, so nothing smaller than a finger. The drawings of the row hold
+      // the row's own controls, which take neither a tap nor the focus.
       expect(seen.tappable).toBe(0)
+      expect(seen.drawnControls).toBe(DRAWN.rowActions)
 
       // Point 6: test data, and the frame asks for nothing on a page of the Menú.
       expect(asked).toEqual([])
       expect(errors).toEqual([])
     })
   }
+}
+
+test('the drawings of the row’s action take neither a tap nor the focus, and the Menú’s page has no row', async ({
+  page,
+}) => {
+  const { errors, asked } = watch(page)
+  await page.setViewportSize({ width: 360, height: 780 })
+  await page.goto('/mas/piezas')
+  await expect(page.locator('main [data-section]')).toHaveCount(DRAWN.sections)
+  const section = page.locator('main [data-section="accion-de-la-fila"]')
+  // A tap on the «+» and on «Sincronizar», by their place on the screen: nothing happens, nothing is asked.
+  for (const layout of ['icon', 'text']) {
+    const drawn = section.locator(`[data-slot="row-action"][data-layout="${layout}"]`).first()
+    await drawn.scrollIntoViewIfNeeded()
+    const box = await drawn.boundingBox()
+    if (!box) throw new Error(`no ${layout} action drawn`)
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+    expect(new URL(page.url()).pathname + new URL(page.url()).hash, layout).toBe('/mas/piezas')
+    // Nor can it take the focus.
+    expect(
+      await drawn.evaluate((element) => {
+        ;(element as HTMLElement).focus()
+        return document.activeElement === element
+      }),
+    ).toBe(false)
+  }
+  // Pictures, named in the words beside them (`inert` keeps them out of a screen reader's way too).
+  expect(
+    await section
+      .locator('[data-drawing="fixed-row"]')
+      .evaluateAll((drawings) => drawings.map((d) => (d as HTMLElement).inert)),
+  ).toEqual(Array(DRAWN.rowDrawings).fill(true))
+  await expect(
+    section.getByText('Un enlace, con su nombre para el lector y para el puntero: «Nueva simulación».'),
+  ).toBeVisible()
+  // The row of the frame is not on a page of the Menú, and the gallery does not draw a second one.
+  await expect(page.locator('[data-slot="fixed-row"]')).toHaveCount(0)
+  await page.waitForLoadState('networkidle')
+  expect(asked).toEqual([])
+  expect(errors).toEqual([])
+})
+
+for (const width of [320, 360]) {
+  test(`the drawings of the row at ${width} px are the row: the same views, as wide, beside the same action`, async ({
+    page,
+  }) => {
+    // The views of a drawing are only a picture of them (no tabs), so they take the row's face from its classes.
+    await page.setViewportSize({ width, height: 780 })
+    const views = (scope: string) =>
+      page.evaluate(
+        (selector) =>
+          [...document.querySelectorAll(selector)].map((view) => {
+            const style = getComputedStyle(view)
+            return {
+              text: view.textContent,
+              family: style.fontFamily.split(',')[0]?.replace(/"/g, ''),
+              weight: style.fontWeight,
+              width: Math.round(view.getBoundingClientRect().width * 10) / 10,
+            }
+          }),
+        scope,
+      )
+    const real: Record<string, Awaited<ReturnType<typeof views>>> = {}
+    for (const to of ['/simulacion', '/coleccion']) {
+      await page.goto(to)
+      await expect(page.locator('[data-slot="fixed-row"] [data-slot="row-action"]')).toBeVisible()
+      await fontsReady(page)
+      real[to] = await views('[data-slot="fixed-row"] [role="tab"]')
+    }
+    await page.goto('/mas/piezas')
+    await expect(page.locator('main [data-section]')).toHaveCount(DRAWN.sections)
+    await fontsReady(page)
+    const drawn = (layout: string) =>
+      views(
+        `main [data-drawing="fixed-row"]:has(> [data-slot="row-action"][data-layout="${layout}"]) [data-drawing="view"]`,
+      )
+    expect(real['/simulacion']).toHaveLength(3)
+    expect(real['/coleccion']).toHaveLength(2)
+    for (const view of real['/simulacion'] ?? []) expect(view.family).toBe('Barlow Semi Condensed')
+    expect(await drawn('icon')).toEqual(real['/simulacion'])
+    // The first of the three drawings beside two views is «Sincronizar» as the row has it.
+    expect((await drawn('text')).slice(0, 2)).toEqual(real['/coleccion'])
+    // And nothing of the section is wider than the window.
+    const section = await page.evaluate(() => {
+      const found = document.querySelector('main [data-section="accion-de-la-fila"]')
+      return {
+        scrollWidth: document.documentElement.scrollWidth,
+        out: [...(found?.querySelectorAll('*') ?? [])].filter((element) => {
+          const rect = element.getBoundingClientRect()
+          return rect.width > 0 && rect.right > window.innerWidth + 0.5
+        }).length,
+      }
+    })
+    expect(section).toEqual({ scrollWidth: width, out: 0 })
+  })
 }
 
 test('a block holds what it is given: a line that does not wrap inside it cannot push its percentage out', async ({
@@ -473,6 +650,8 @@ test('where the system forces its colours every chart, seal and mark keeps its s
     }))
     return {
       forced: matchMedia('(forced-colors: active)').matches,
+      // The action of the row: its fill was its only edge.
+      actions: [...document.querySelectorAll('main [data-slot="row-action"]')].map((action) => edge(action)),
       parts: drawn.map((element) => ({ name: name(element), ...edge(element) })),
       seals,
       orientative,
@@ -480,6 +659,10 @@ test('where the system forces its colours every chart, seal and mark keeps its s
     }
   })
   expect(seen.forced).toBe(true)
+  expect(seen.actions).toHaveLength(DRAWN.rowActions)
+  for (const action of seen.actions)
+    expect(action, JSON.stringify(action)).toMatchObject({ style: 'solid', seen: true })
+  for (const action of seen.actions) expect(action.width, JSON.stringify(action)).toBeGreaterThanOrEqual(1)
   // Every part of every chart has an edge of 1 px or more, in a colour that is not the one behind it.
   expect(seen.parts.filter((part) => part.width < 1 || !part.seen || part.style === 'none')).toEqual([])
   // All of them are there: the point of each chart with a figure, and the empty track of «sin datos».

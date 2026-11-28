@@ -548,7 +548,7 @@ describe('the frame', () => {
       )
       .sort()
     expect(literal).toEqual([
-      'app/FixedRow.tsx min-w-[60px]',
+      'app/RowAction.tsx min-w-[60px]',
       'pages/cartas/CardPage.tsx w-[60px]',
       'pages/cartas/GroupPage.tsx w-[60px]',
     ])
@@ -740,11 +740,24 @@ describe('the frame', () => {
       'pages/mazos/DeckImportPage.tsx',
       'pages/partidas/QuickMatchForm.tsx',
     ])
-    // The row itself has the same look.
-    const row = read('app/FixedRow.tsx')
-    expect(row).toContain(
-      'h-(--row-h) items-center gap-1.5 rounded-[20px] border border-input bg-row p-[5px] shadow-(--shadow-row)',
+    // The row itself has the same look: the box that the row and every drawing of it take (`ROW_BOX`).
+    const look = read('app/RowAction.tsx')
+    expect(look).toContain(
+      'h-(--row-h) items-center gap-[6px] rounded-[20px] border border-input bg-row p-[5px] shadow-(--shadow-row)',
     )
+    expect(read('app/FixedRow.tsx')).toContain("className={cn('pointer-events-auto mx-[12px] mb-[8px]', ROW_BOX)}")
+  })
+
+  it('a page that keeps its own bar has no action of the frame: no source declares one and draws `StickyActions`', () => {
+    const declaring = sources()
+      .filter(([path, text]) => path !== 'app/pageAction.tsx' && /\busePageAction\s*\(/.test(text))
+      .map(([path]) => path)
+    // The pages that tell the row something of its action: these, on purpose.
+    expect(declaring.sort()).toEqual(['pages/coleccion/CollectionPage.tsx', 'pages/mazos/DeckDetailPage.tsx'])
+    const both = sources()
+      .filter(([, text]) => /\busePageAction\s*\(/.test(text) && /<StickyActions\b/.test(text))
+      .map(([path]) => path)
+    expect(both).toEqual([])
   })
 
   it('the column is a phone at every width: no viewport variant inside it', () => {
@@ -785,11 +798,15 @@ describe('the frame', () => {
     })
 
     it('the fixed row: a view on the row, the chosen view on its fill, the action, the row’s edge', () => {
-      const row = read('app/FixedRow.tsx')
-      expect(row).toMatch(/const VIEW_TAB =\s*'[^']*\btext-foreground-2\b/)
-      expect(row).toContain("'bg-row-selected font-bold text-foreground shadow-[inset_0_0_0_1.5px_var(--input)]'")
-      expect(row).toContain("'bg-primary font-bold text-primary-foreground'")
-      expect(row).toMatch(/rounded-\[15px\] bg-primary [^']*\btext-primary-foreground\b/)
+      // The look of the row and of its action is in `RowAction.tsx`, for the row and for the gallery's drawings.
+      const look = read('app/RowAction.tsx')
+      expect(look).toMatch(/export const VIEW_TAB =\s*'[^']*\btext-foreground-2\b/)
+      expect(look).toContain(
+        "export const VIEW_CHOSEN_IN_ROW = 'bg-row-selected font-bold text-foreground shadow-[inset_0_0_0_1.5px_var(--input)]'",
+      )
+      expect(look).toMatch(/const ACTION =\s*'[^']*rounded-\[15px\] bg-primary [^']*\btext-primary-foreground\b/)
+      // The chosen view of the views «arriba» is the row's own.
+      expect(read('app/FixedRow.tsx')).toContain("'bg-primary font-bold text-primary-foreground'")
       expect(contrast('--foreground-2', '--row', theme)).toBeGreaterThanOrEqual(TEXT)
       expect(contrast('--foreground', '--row-selected', theme)).toBeGreaterThanOrEqual(TEXT)
       expect(contrast('--primary-foreground', '--primary', theme)).toBeGreaterThanOrEqual(TEXT)
@@ -922,8 +939,8 @@ describe('how much the app moves', () => {
     ).toBe('animation: tab-pop var(--dur-3) var(--spring);')
     expect(CSS.match(/animation:[^;]*tab-pop/g)).toHaveLength(1)
     expect(read('app/TabBar.tsx')).toContain('data-slot="tab-pill"')
-    const row = read('app/FixedRow.tsx')
-    expect(row).toMatch(/transition-transform duration-\(--dur-1\) [^']*active:scale-\[\.97\]/)
+    const row = read('app/RowAction.tsx')
+    expect(row).toMatch(/const ACTION =\s*'[^']*transition-transform duration-\(--dur-1\) [^']*active:scale-\[\.97\]/)
     expect(row).toMatch(/const VIEW_TAB =\s*'[^']*transition-colors duration-\(--dur-2\)/)
     expect(read('components/SegmentedRadio.tsx')).toContain(
       'transition-[background-color,color] duration-(--dur-2) ease-(--ease)',
