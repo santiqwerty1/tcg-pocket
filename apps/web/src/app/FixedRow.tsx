@@ -1,15 +1,23 @@
 /**
  * The fixed row of mock-up D, one line above the tab bar: the views of the screen on the left and its main action on
- * the right. The shell decides what goes in it (`frameFor` and the look of this device); with the views «arriba» the
- * same tablist is drawn under the header instead.
+ * the right. The shell decides what goes in it (`frameFor`, what the page declared and the look of this device); with
+ * the views «arriba» the same tablist is drawn under the header instead.
  */
 import { type KeyboardEvent, useRef } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { cn } from '@/lib/utils'
 import { type FrameAction, type FrameView, isPlainClick, normalizePath } from './frame'
-
-const VIEW_TAB =
-  'flex items-center justify-center px-1 text-[15px] leading-none font-semibold tracking-[0.01em] text-foreground-2 transition-colors duration-(--dur-2) select-none focus-visible:outline-2 focus-visible:outline-offset-2'
+import type { PageActionState } from './pageAction'
+import {
+  ROW_BOX,
+  ROW_VIEWS,
+  RowAction,
+  type RowActionLayout,
+  type RowActionProps,
+  VIEW_CHOSEN_IN_ROW,
+  VIEW_TAB,
+  VIEW_TAB_IN_ROW,
+} from './RowAction'
 
 /** Where ← → Home End lead from the tab at `at`, going round; null for any other key. */
 function stepTo(key: string, at: number, count: number): number | null {
@@ -74,7 +82,7 @@ export function ViewTabs({
       aria-label={label}
       className={
         place === 'row'
-          ? 'grid min-w-0 flex-1 auto-cols-[minmax(min-content,1fr)] grid-flow-col gap-0.5'
+          ? ROW_VIEWS
           : 'grid auto-cols-fr grid-flow-col gap-0.5 rounded-[17px] border border-input bg-row p-[3px]'
       }
     >
@@ -102,11 +110,8 @@ export function ViewTabs({
             onKeyDown={(event) => onKeyDown(event, at)}
             className={cn(
               VIEW_TAB,
-              place === 'row' ? 'h-12 min-w-[60px] rounded-[15px]' : 'h-11 rounded-[14px]',
-              selected &&
-                (place === 'row'
-                  ? 'bg-row-selected font-bold text-foreground shadow-[inset_0_0_0_1.5px_var(--input)]'
-                  : 'bg-primary font-bold text-primary-foreground'),
+              place === 'row' ? VIEW_TAB_IN_ROW : 'h-11 rounded-[14px]',
+              selected && (place === 'row' ? VIEW_CHOSEN_IN_ROW : 'bg-primary font-bold text-primary-foreground'),
             )}
           >
             {view.label}
@@ -117,42 +122,54 @@ export function ViewTabs({
   )
 }
 
-function RowAction({ action, iconOnly }: { action: FrameAction; iconOnly: boolean }) {
-  const Icon = action.icon
-  return (
-    <Link
-      to={action.to}
-      {...(iconOnly ? { 'aria-label': action.label, title: action.label } : {})}
-      className={cn(
-        'flex h-12 min-w-12 items-center justify-center gap-2 rounded-[15px] bg-primary font-heading text-[17px] leading-none font-bold tracking-[0.01em] whitespace-nowrap text-primary-foreground transition-transform duration-(--dur-1) select-none focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[.97]',
-        // Next to the views the action takes only what it needs: its icon alone, 48 × 48.
-        iconOnly ? 'w-12 flex-none' : 'flex-1 px-4',
-      )}
-    >
-      <Icon className={iconOnly ? 'size-6' : 'size-5'} aria-hidden="true" />
-      {iconOnly ? null : action.label}
-    </Link>
-  )
+/**
+ * The route's action with what the page declared over it: the page's label, name and pending text win, and a button
+ * takes the page's handler (without one it is drawn and does nothing). Beside the views it is its icon alone, unless
+ * the route keeps its text; alone in the row, its text.
+ */
+export function rowActionProps(
+  action: FrameAction,
+  page: PageActionState | null,
+  besideViews: boolean,
+): RowActionProps {
+  const { spec, params } = action
+  const layout: RowActionLayout = !besideViews ? 'full' : spec.display === 'text' ? 'text' : 'icon'
+  const shared = {
+    label: page?.label ?? spec.label,
+    // A page that writes its own label and no name drops the route's name: the name must hold the words on screen
+    // (WCAG 2.5.3), and the route's longer one was written for the route's label.
+    name: page?.ariaLabel ?? (page?.label === undefined ? spec.ariaLabel : undefined),
+    icon: spec.icon,
+    layout,
+    pending: page?.pending ?? false,
+    pendingLabel: page?.pendingLabel ?? spec.pendingLabel,
+    disabled: page?.disabled ?? false,
+  }
+  return spec.kind === 'link'
+    ? { ...shared, kind: 'link', to: spec.to(params) }
+    : { ...shared, kind: 'button', onSelect: page?.onSelect, opensDialog: spec.opens === 'dialog' }
 }
 
-/** Views and an action: the views and the action as an icon. Only an action: the action, full width. Neither: no row. */
+/**
+ * Views and an action: the views and the action beside them. Only an action: the action, full width. Neither: no
+ * row. The action comes as the shell leaves it: one the page hid is not given.
+ */
 export function FixedRow({
   views,
   viewsLabel,
   action,
+  page = null,
 }: {
   views: readonly FrameView[] | null
   viewsLabel: string | null
   action: FrameAction | null
+  page?: PageActionState | null
 }) {
   if (!views && !action) return null
   return (
-    <div
-      data-slot="fixed-row"
-      className="pointer-events-auto mx-3 mb-2 flex h-(--row-h) items-center gap-1.5 rounded-[20px] border border-input bg-row p-[5px] shadow-(--shadow-row)"
-    >
+    <div data-slot="fixed-row" className={cn('pointer-events-auto mx-[12px] mb-[8px]', ROW_BOX)}>
       {views ? <ViewTabs views={views} label={viewsLabel ?? 'Vistas'} place="row" /> : null}
-      {action ? <RowAction action={action} iconOnly={views !== null} /> : null}
+      {action ? <RowAction {...rowActionProps(action, page, views !== null)} /> : null}
     </div>
   )
 }

@@ -14,6 +14,7 @@ import { errorMessage } from '@/api/client'
 import { exportCollectionCsv, useCollectionSummary } from '@/api/collection'
 import { useDotggPreview, useDotggStatus } from '@/api/dotgg'
 import { useTrackerPreview } from '@/api/trackerSync'
+import { usePageAction } from '@/app/pageAction'
 import { ErrorState } from '@/components/ListState'
 import { Stat } from '@/components/Stat'
 import { Badge } from '@/components/ui/badge'
@@ -47,6 +48,13 @@ export function CollectionPage() {
     }
   }
   const syncing = tracker.isPending || game.isPending
+  // «Sincronizar» is the fixed row's (`frame.ts`): the same preview as always, only when tapped, and then its page.
+  usePageAction({
+    onSelect: sync,
+    pending: syncing,
+    ariaLabel: fromGame ? 'Sincronizar la colección con el juego' : 'Sincronizar la colección con el tracker',
+    pendingLabel: fromGame ? 'Consultando ptcgpocket.gg…' : 'Consultando el tracker…',
+  })
   const [params, setParams] = useSearchParams()
   const view: View = params.get('vista') === 'edicion' ? 'edicion' : 'carta'
   const summary = useCollectionSummary()
@@ -101,15 +109,6 @@ export function CollectionPage() {
         </Link>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        <Button onClick={sync} disabled={syncing}>
-          {fromGame
-            ? game.isPending
-              ? 'Consultando ptcgpocket.gg…'
-              : 'Sincronizar con el juego'
-            : tracker.isPending
-              ? 'Consultando el tracker…'
-              : 'Sincronizar con el tracker'}
-        </Button>
         <Button asChild>
           <Link to="/coleccion/importar">
             <UploadIcon data-icon="inline-start" />

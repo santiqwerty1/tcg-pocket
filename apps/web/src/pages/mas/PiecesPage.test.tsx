@@ -3,7 +3,7 @@
 // states; and it asks the API for nothing. How it measures on a phone is e2e/piezas.spec.ts.
 import { QueryClient } from '@tanstack/react-query'
 import { act, render, screen, within } from '@testing-library/react'
-import { createMemoryRouter, RouterProvider } from 'react-router'
+import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Providers } from '@/app/Providers'
 import { routes } from '@/app/routes'
@@ -29,10 +29,16 @@ const PIECES = [
   ['bloque', 'Bloque de una fuente'],
   ['leyenda', 'Leyenda'],
   ['tres-fuentes', 'Las tres fuentes de un mazo'],
+  ['accion-de-la-fila', 'Acción de la fila'],
 ] as const
 
 function show() {
-  return render(<PiecesPage />).container
+  // The drawings of the fixed row's action hold links: a router is around, as in the app.
+  return render(
+    <MemoryRouter initialEntries={['/mas/piezas']}>
+      <PiecesPage />
+    </MemoryRouter>,
+  ).container
 }
 /** The section of a piece, from the page or from the section itself. */
 function piece(container: HTMLElement, id: string): HTMLElement {
@@ -92,7 +98,7 @@ describe('«Piezas de la interfaz»', () => {
     const container = show()
     const states = (id: string) =>
       [...piece(container, id).querySelectorAll('[data-state]')].map((item) => item.getAttribute('data-state'))
-    expect(PIECES.map(([id]) => states(id).length)).toEqual([4, 6, 12, 4, 16, 14, 4, 2])
+    expect(PIECES.map(([id]) => states(id).length)).toEqual([4, 6, 12, 4, 16, 14, 4, 2, 6])
     for (const [id] of PIECES) {
       expect(new Set(states(id)).size, id).toBe(states(id).length)
       for (const item of piece(container, id).querySelectorAll('[data-state]')) {
@@ -125,6 +131,9 @@ describe('«Piezas de la interfaz»', () => {
       laneBlocks: drawn('[data-slot="source-block"][data-size="lane"]'),
       legends: drawn('[data-slot="source-legend"]'),
       middleTicks: drawn('[data-state*="marca del medio"] [data-part="tick"]'),
+      rowDrawings: drawn('[data-drawing="fixed-row"]'),
+      rowActions: drawn('[data-slot="row-action"]'),
+      rowViews: drawn('[data-drawing="fixed-row"] [data-drawing="view"]'),
     }).toEqual({
       seals18: 40,
       seals16: 20,
@@ -141,6 +150,10 @@ describe('«Piezas de la interfaz»', () => {
       laneBlocks: 7,
       legends: 6,
       middleTicks: 3,
+      rowDrawings: 6,
+      rowActions: 6,
+      // Three views beside the «+», and two beside each of the three looks of «Sincronizar».
+      rowViews: 3 + 2 * 3,
     })
     expect(drawn('[data-slot="source-seal"]')).toBe(40 + 20)
   })
@@ -436,6 +449,67 @@ describe('«Piezas de la interfaz»', () => {
     expect(empty.querySelectorAll('[data-slot="no-data"]')).toHaveLength(3)
     expect(empty.querySelectorAll('[data-unavailable]')).toHaveLength(2)
     expect(text(empty)).not.toMatch(/\d\s*%/)
+  })
+
+  it('the action of the row: each of its looks, drawn by the row’s own component, and none of them takes a tap', () => {
+    const container = show()
+    const section = piece(container, 'accion-de-la-fila')
+    const look = (name: string) => {
+      const drawing = state(container, 'accion-de-la-fila', name).querySelector<HTMLElement>(
+        '[data-drawing="fixed-row"]',
+      )
+      if (!drawing) throw new Error(`no drawing of the row in ${name}`)
+      const actions = drawing.querySelectorAll<HTMLElement>('[data-slot="row-action"]')
+      expect(actions, name).toHaveLength(1)
+      return { drawing, action: actions[0] as HTMLElement }
+    }
+    // A drawing: nothing in it takes a tap or the focus, and it is not the frame's row.
+    const drawings = section.querySelectorAll('[data-drawing="fixed-row"]')
+    expect(drawings).toHaveLength(6)
+    for (const drawing of drawings) expect(drawing).toHaveAttribute('inert')
+    expect(container.querySelector('[data-slot="fixed-row"]')).toBeNull()
+    expect(container.querySelectorAll('[data-slot="row-action"]')).toHaveLength(6)
+    expect(
+      [...section.querySelectorAll('[data-slot="row-action"]')].map((item) => item.getAttribute('data-layout')),
+    ).toEqual(['full', 'icon', 'text', 'text', 'text', 'full'])
+
+    const full = look('Sola, a todo el ancho, con su texto').action
+    expect(full.tagName).toBe('A')
+    expect(full).toHaveTextContent(/^Registrar partida$/)
+    expect(full).toHaveAttribute('aria-label', 'Registrar partida con este mazo')
+    // A drawing of a link goes nowhere but its own section.
+    expect(full).toHaveAttribute('href', '/mas/piezas#pieza-accion-de-la-fila')
+
+    const plus = look('Junto a tres vistas: el «+» solo, de 48 × 48')
+    expect(plus.action).toHaveTextContent('')
+    expect(plus.action).toHaveAttribute('aria-label', 'Nueva simulación')
+    expect(plus.action).toHaveAttribute('title', 'Nueva simulación')
+    expect(plus.action).toHaveClass('w-[48px]', 'h-[48px]')
+    expect([...plus.drawing.querySelectorAll('[data-drawing="view"]')].map((view) => view.textContent)).toEqual([
+      'Laboratorio',
+      'Simulación',
+      'Practicar',
+    ])
+
+    const sync = look('Junto a dos vistas, con su texto').action
+    expect(sync.tagName).toBe('BUTTON')
+    expect(sync).toHaveTextContent(/^Sincronizar$/)
+    expect(sync).toHaveAttribute('aria-label', 'Sincronizar la colección con el juego')
+    expect(sync).not.toHaveAttribute('aria-disabled')
+
+    const pending = look('Un botón trabajando')
+    expect(pending.action).toHaveAttribute('aria-busy', 'true')
+    expect(pending.action.querySelector('svg')).toHaveClass('animate-spin')
+    expect(pending.drawing.querySelector('[role="status"]')).toHaveTextContent('Consultando ptcgpocket.gg…')
+
+    const idle = look('Un botón que todavía no tiene qué hacer').action
+    expect(idle).toHaveAttribute('aria-disabled', 'true')
+    expect(idle).not.toHaveAttribute('aria-busy')
+
+    const update = look('Con un nombre que sale de los datos, sin ícono').action
+    expect(update).toHaveTextContent(/^Actualizar el mazo #1$/)
+    expect(update.querySelector('svg')).toBeNull()
+    expect(update).not.toHaveAttribute('aria-disabled')
   })
 
   it('where there is no data there is never a zero: every empty figure and block says «sin datos» or its reason', () => {

@@ -107,6 +107,30 @@ function ratio(foreground: Rgba, surface: Rgba): number {
 const contrast = (foreground: string, surface: string, theme: Theme) =>
   ratio(colorOf(foreground, theme), colorOf(surface, theme))
 
+/** The colour tokens of the theme (`--color-x` in `@theme inline`), by their utility name («foreground-2»). */
+const COLOUR_TOKENS = new Set(
+  [...THEME_BLOCK.keys()].filter((name) => name.startsWith('--color-')).map((name) => name.slice('--color-'.length)),
+)
+
+/**
+ * The colour tokens a code paints with: as text («text-foreground-3») and as a graphic (a fill, an edge, a variable in a
+ * shadow or a gradient). Read from the code, so a change of shape or size does not move a test built on it; a new
+ * colour does.
+ */
+function paints(code: string): { text: string[]; graphic: string[] } {
+  const text = new Set<string>()
+  const graphic = new Set<string>()
+  const utility =
+    /(?<![\w-])(text|bg|border(?:-[trblxy])?|fill|stroke|outline|ring|decoration|from|via|to)-([a-z][\w-]*?)(?=[^\w-]|$)/g
+  for (const [, kind = '', token = ''] of code.matchAll(utility)) {
+    if (COLOUR_TOKENS.has(token)) (kind === 'text' ? text : graphic).add(token)
+  }
+  for (const [, token = ''] of code.matchAll(/var\(--([\w-]+)\)/g)) {
+    if (COLOUR_TOKENS.has(token)) graphic.add(token)
+  }
+  return { text: [...text].sort(), graphic: [...graphic].sort() }
+}
+
 /** `--text` on a surface tinted with `alpha` of `--tint` (what `bg-primary/10` paints over the page). */
 function contrastOnTint(text: string, tint: string, alpha: number, surface: string, theme: Theme): number {
   const tinted = seenOn({ rgb: colorOf(tint, theme).rgb, alpha }, colorOf(surface, theme))
@@ -548,7 +572,7 @@ describe('the frame', () => {
       )
       .sort()
     expect(literal).toEqual([
-      'app/FixedRow.tsx min-w-[60px]',
+      'app/RowAction.tsx min-w-[60px]',
       'pages/cartas/CardPage.tsx w-[60px]',
       'pages/cartas/GroupPage.tsx w-[60px]',
     ])
@@ -740,11 +764,24 @@ describe('the frame', () => {
       'pages/mazos/DeckImportPage.tsx',
       'pages/partidas/QuickMatchForm.tsx',
     ])
-    // The row itself has the same look.
-    const row = read('app/FixedRow.tsx')
-    expect(row).toContain(
-      'h-(--row-h) items-center gap-1.5 rounded-[20px] border border-input bg-row p-[5px] shadow-(--shadow-row)',
+    // The row itself has the same look: the box that the row and every drawing of it take (`ROW_BOX`).
+    const look = read('app/RowAction.tsx')
+    expect(look).toContain(
+      'h-(--row-h) items-center gap-[6px] rounded-[20px] border border-input bg-row p-[5px] shadow-(--shadow-row)',
     )
+    expect(read('app/FixedRow.tsx')).toContain("className={cn('pointer-events-auto mx-[12px] mb-[8px]', ROW_BOX)}")
+  })
+
+  it('a page that keeps its own bar has no action of the frame: no source declares one and draws `StickyActions`', () => {
+    const declaring = sources()
+      .filter(([path, text]) => path !== 'app/pageAction.tsx' && /\busePageAction\s*\(/.test(text))
+      .map(([path]) => path)
+    // The pages that tell the row something of its action: these, on purpose.
+    expect(declaring.sort()).toEqual(['pages/coleccion/CollectionPage.tsx', 'pages/mazos/DeckDetailPage.tsx'])
+    const both = sources()
+      .filter(([, text]) => /\busePageAction\s*\(/.test(text) && /<StickyActions\b/.test(text))
+      .map(([path]) => path)
+    expect(both).toEqual([])
   })
 
   it('the column is a phone at every width: no viewport variant inside it', () => {
@@ -785,11 +822,15 @@ describe('the frame', () => {
     })
 
     it('the fixed row: a view on the row, the chosen view on its fill, the action, the row’s edge', () => {
-      const row = read('app/FixedRow.tsx')
-      expect(row).toMatch(/const VIEW_TAB =\s*'[^']*\btext-foreground-2\b/)
-      expect(row).toContain("'bg-row-selected font-bold text-foreground shadow-[inset_0_0_0_1.5px_var(--input)]'")
-      expect(row).toContain("'bg-primary font-bold text-primary-foreground'")
-      expect(row).toMatch(/rounded-\[15px\] bg-primary [^']*\btext-primary-foreground\b/)
+      // The look of the row and of its action is in `RowAction.tsx`, for the row and for the gallery's drawings.
+      const look = read('app/RowAction.tsx')
+      expect(look).toMatch(/export const VIEW_TAB =\s*'[^']*\btext-foreground-2\b/)
+      expect(look).toContain(
+        "export const VIEW_CHOSEN_IN_ROW = 'bg-row-selected font-bold text-foreground shadow-[inset_0_0_0_1.5px_var(--input)]'",
+      )
+      expect(look).toMatch(/const ACTION =\s*'[^']*rounded-\[15px\] bg-primary [^']*\btext-primary-foreground\b/)
+      // The chosen view of the views «arriba» is the row's own.
+      expect(read('app/FixedRow.tsx')).toContain("'bg-primary font-bold text-primary-foreground'")
       expect(contrast('--foreground-2', '--row', theme)).toBeGreaterThanOrEqual(TEXT)
       expect(contrast('--foreground', '--row-selected', theme)).toBeGreaterThanOrEqual(TEXT)
       expect(contrast('--primary-foreground', '--primary', theme)).toBeGreaterThanOrEqual(TEXT)
@@ -922,8 +963,8 @@ describe('how much the app moves', () => {
     ).toBe('animation: tab-pop var(--dur-3) var(--spring);')
     expect(CSS.match(/animation:[^;]*tab-pop/g)).toHaveLength(1)
     expect(read('app/TabBar.tsx')).toContain('data-slot="tab-pill"')
-    const row = read('app/FixedRow.tsx')
-    expect(row).toMatch(/transition-transform duration-\(--dur-1\) [^']*active:scale-\[\.97\]/)
+    const row = read('app/RowAction.tsx')
+    expect(row).toMatch(/const ACTION =\s*'[^']*transition-transform duration-\(--dur-1\) [^']*active:scale-\[\.97\]/)
     expect(row).toMatch(/const VIEW_TAB =\s*'[^']*transition-colors duration-\(--dur-2\)/)
     expect(read('components/SegmentedRadio.tsx')).toContain(
       'transition-[background-color,color] duration-(--dur-2) ease-(--ease)',
@@ -1121,23 +1162,13 @@ describe('the seal of a source and the marks of a figure', () => {
   /** Where a seal or a mark is drawn: the page, a card, the head of a table. */
   const SURFACES = ['--background', '--card', '--surface-2']
 
-  it('the pairs below are the ones the pieces write', () => {
-    // Each with what it takes where the system forces its colours: an edge, of no colour written.
-    expect(seal).toContain("matches: 'bg-foreground text-card forced-colors:border-[3px] forced-colors:border-double',")
-    expect(seal).toContain(
-      "tournament: 'text-foreground shadow-[inset_0_0_0_1.5px_var(--foreground-2)] forced-colors:border-[1.5px]',",
-    )
-    expect(seal).toContain("simulation: 'border-[1.5px] border-dashed border-foreground-2 text-foreground',")
-    expect(seal).toContain(
-      "const QUIET_FILL = 'bg-foreground-2 text-card forced-colors:border-[3px] forced-colors:border-double'",
-    )
-    expect(marks).toContain(
-      "border-[1.5px] border-warning bg-[linear-gradient(90deg,var(--warning)_50%,transparent_50%)] forced-colors:border-l-[4.5px]',",
-    )
-    expect(marks).toContain("border-x-transparent border-b-warning [clip-path:polygon(50%_0,100%_100%,0_100%)]',")
-    expect(marks).toContain("'type-n whitespace-nowrap text-foreground-3'")
-    // The letter of a seal is 13 px and bold: text, by the rule of 4.5:1.
-    expect(seal).toContain('font-heading text-[13px] leading-none font-bold')
+  it('the seal and the marks paint only with the tokens measured below', () => {
+    // M is the card's colour on a fill of the text colour (or of the second one, quiet); T and B, the text colour on
+    // the surface, with an edge of the second one. The marks: amber, and «sin datos» in the third text colour.
+    expect(paints(seal)).toEqual({ text: ['card', 'foreground'], graphic: ['foreground', 'foreground-2'] })
+    expect(paints(marks)).toEqual({ text: ['foreground-3'], graphic: ['warning'] })
+    // The letter of a seal is 13 px: text, by the rule of 4.5:1.
+    expect(seal).toContain('text-[13px]')
   })
 
   describe.each(THEMES)('WCAG AA in the %s theme', (theme) => {
@@ -1181,61 +1212,18 @@ describe('the small charts, the figure and the block of a source', () => {
   const over = (ink: string, layer: string, surface: string, theme: Theme) =>
     ratio(colorOf(ink, theme), { rgb: seenOn(colorOf(layer, theme), colorOf(surface, theme)), alpha: 1 })
 
-  it('the pairs below are the ones the pieces write', () => {
-    // The interval of a cell and the large one of a block are drawn with the same tokens (and, where the system
-    // forces its colours, with an edge of the thickness of each part instead).
-    expect(charts).toContain(
-      'data-part="track" className="absolute inset-x-0 top-[5.5px] h-px bg-track forced-colors:border-t"',
-    )
-    expect(bar).toContain(
-      'className="absolute inset-x-0 top-[5px] h-[2px] rounded-[2px] bg-track forced-colors:border-t-2"',
-    )
-    expect(charts).toContain('className="absolute inset-y-px w-px bg-foreground-3 forced-colors:border-l"')
-    expect(bar).toContain('className="absolute top-px h-[10px] w-px bg-foreground-3 forced-colors:border-l"')
-    for (const source of [charts, bar]) {
-      expect(source).toContain('className="absolute top-[3px] h-[6px] rounded-[3px] bg-band forced-colors:border"')
-      expect(source).toContain('w-[2px] rounded-[1px] bg-warning forced-colors:border-l-2"')
-      expect(source).toContain('rounded-full bg-foreground shadow-[0_0_0_2px_var(--chart-surface,var(--card))] forced-')
-    }
-    expect(charts).toContain(
-      'bg-[repeating-linear-gradient(90deg,var(--track)_0_4px,transparent_4px_8px)] forced-colors:border-t forced-colors:border-dashed"',
-    )
-    // The bar against a maximum, and the bar of a record.
-    expect(charts).toContain(
-      "className={cn('block h-[6px] overflow-hidden rounded-[3px] bg-track forced-colors:border', className)}",
-    )
-    expect(charts).toContain('className="block h-full rounded-r-[3px] bg-foreground-2 forced-colors:border-y-2"')
-    expect(charts).toContain("drawn.length === 0 && 'bg-track forced-colors:border'")
-    for (const tone of [
-      "win: 'bg-success',",
-      "loss: 'bg-destructive',",
-      "draw: 'bg-draw',",
-      "strong: 'bg-foreground',",
-      "soft: 'bg-foreground-3',",
-      "none: 'shadow-[inset_0_0_0_1.5px_var(--input)] ",
-    ]) {
-      expect(charts, tone).toContain(tone)
-    }
-    // The figure: the percentage in the text colour, its n in the second or the third, a stale one in the second.
-    expect(value).toContain(
-      "cell: { line: 'items-baseline', lead: 'type-figure-17', rest: 'type-n leading-[1.1] text-foreground-3'",
-    )
-    expect(value).toContain("rest: 'type-n leading-[18px] text-foreground-2',")
-    expect(value).toContain("hero: { line: 'items-baseline', lead: 'type-figure-22', rest: 'type-n text-foreground-3'")
-    expect(value).toContain("score: { line: 'items-baseline', lead: 'type-figure-28', rest: 'type-n text-foreground-2'")
-    expect(value).toContain("figure.stale ? 'font-medium text-foreground-2' : 'text-foreground'")
-    expect(value).toContain('<small className="text-[15px] font-semibold text-foreground-2">')
-    // The block of a source and the legend.
-    expect(block).toContain("'flex min-w-0 font-heading tracking-[0.02em] text-foreground-2',")
-    expect(block).toContain("figure.stale ? 'font-medium text-foreground-2' : 'text-foreground',")
-    expect(block).toContain('<span className="type-n text-foreground-3">{figureSample(figure)}</span>')
-    expect(block).toContain("lane ? 'leading-[1.4] text-foreground-2' : 'text-foreground-3'")
-    expect(block).toContain('data-part="warning" className="type-sub text-pretty wrap-anywhere text-foreground"')
-    expect(block).toContain('data-part="unavailable" className="type-sub text-pretty wrap-anywhere text-foreground-2"')
-    expect(block).toContain('data-part="note" className="type-sub text-pretty wrap-anywhere text-foreground-3"')
-    expect(block).toContain("'rounded-[10px] border border-dashed border-input px-[10px] py-2'")
-    expect(bar).toContain('className="flex min-h-[18px] items-center type-n text-foreground-2"')
-    expect(legend).toContain("'flex flex-wrap gap-x-[14px] type-n leading-[1.3] tracking-[0.01em] text-foreground-3',")
+  it('the charts, the figure, the block and the legend paint only with the tokens measured below', () => {
+    // Two tokens are not measured because they say nothing: the ring around a point takes the surface it is drawn on
+    // (`var(--chart-surface, var(--card))`), and the line over a legend only separates it.
+    const charted = ['band', 'card', 'foreground', 'foreground-3', 'track', 'warning']
+    expect(paints(charts)).toEqual({
+      text: [],
+      graphic: [...charted, 'destructive', 'draw', 'foreground-2', 'input', 'success'].sort(),
+    })
+    expect(paints(bar)).toEqual({ text: ['foreground-2'], graphic: charted })
+    expect(paints(value)).toEqual({ text: ['foreground', 'foreground-2', 'foreground-3'], graphic: [] })
+    expect(paints(block)).toEqual({ text: ['foreground', 'foreground-2', 'foreground-3'], graphic: ['input'] })
+    expect(paints(legend)).toEqual({ text: ['foreground-3'], graphic: ['border'] })
   })
 
   describe.each(THEMES)('WCAG AA in the %s theme', (theme) => {

@@ -476,7 +476,7 @@ describe('the fixed row', () => {
     expect(row()).toContainElement(links[0] as HTMLElement)
     expect(links[0]).toHaveAttribute('href', '/mazos/nuevo')
     // With its text: no views to make room for.
-    expect(links[0]).toHaveTextContent('Nuevo mazo')
+    expect(links[0]).toHaveTextContent(/^Nuevo mazo$/)
     expect(links[0]).not.toHaveAttribute('aria-label')
     expect(screen.queryByRole('tablist', { name: /^Vistas/ })).toBeNull()
     await user.click(links[0] as HTMLElement)
@@ -485,7 +485,64 @@ describe('the fixed row', () => {
     expect(row()).toBeNull()
   })
 
-  it.each(['/mas', '/mazos/1', '/partidas', '/sobres/promo', '/coleccion/importar', '/torneos/semana'])(
+  it('on a deck carries «Registrar partida», a link with its text to Hoy with the deck chosen', async () => {
+    const user = userEvent.setup()
+    // Neither the deck nor the list of decks loads here (the API answers 503): only an archived deck hides the action.
+    const router = renderAt('/mazos/1')
+    await screen.findByRole('navigation', { name: 'Secciones' })
+    const link = within(row() as HTMLElement).getByRole('link', { name: 'Registrar partida con este mazo' })
+    expect(link).toHaveTextContent(/^Registrar partida$/)
+    expect(link).toHaveAttribute('href', '/partidas?mazo=1')
+    expect(screen.queryByRole('tablist', { name: /^Vistas/ })).toBeNull()
+    expect(document.querySelector('[data-slot="bottom-zone"]')).toHaveAttribute('data-row')
+    expect(screen.getByRole('main')).toHaveClass(
+      'pb-[calc(var(--bar-h)+var(--row-h)+54px+env(safe-area-inset-bottom))]',
+    )
+    await user.click(link)
+    expect(where(router)).toBe('/partidas?mazo=1')
+    expect(router.state.historyAction).toBe('PUSH')
+    // Hoy keeps its own bar: no row there.
+    expect(row()).toBeNull()
+  })
+
+  it('on /simulacion the «+» stands alone beside the three views, named «Nueva simulación»', async () => {
+    const user = userEvent.setup()
+    const router = renderAt('/simulacion')
+    await screen.findByRole('navigation', { name: 'Secciones' })
+    const list = views('Vistas de Pruebas')
+    const plus = within(row() as HTMLElement).getByRole('link', { name: 'Nueva simulación' })
+    expect(list.compareDocumentPosition(plus)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(plus).toHaveTextContent('')
+    expect(plus).toHaveAttribute('title', 'Nueva simulación')
+    expect(plus).toHaveAttribute('href', '/simulacion/nueva')
+    await user.click(plus)
+    // A screen that loads when it is opened: the address changes once it has come.
+    await waitFor(() => expect(where(router)).toBe('/simulacion/nueva'))
+    expect(router.state.historyAction).toBe('PUSH')
+    await title('Nueva simulación')
+    expect(row()).toBeNull()
+  })
+
+  it('on /coleccion «Sincronizar» keeps its text beside the two views, a button', async () => {
+    renderAt('/coleccion?vista=edicion')
+    await screen.findByRole('navigation', { name: 'Secciones' })
+    const list = views('Vistas de Cartas')
+    const sync = within(row() as HTMLElement).getByRole('button', { name: /^Sincronizar la colección con el/ })
+    expect(sync).toHaveTextContent(/^Sincronizar$/)
+    expect(list.compareDocumentPosition(sync)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(within(list).getAllByRole('tab')).toHaveLength(2)
+  })
+
+  it.each(['/mas', '/partidas', '/sobres', '/torneos', '/laboratorio', '/jugar', '/mazos/nuevo', '/mazos/hoy'])(
+    'has no action at %s',
+    async (path) => {
+      renderAt(path)
+      await screen.findByRole('navigation', { name: 'Secciones' })
+      expect(document.querySelector('[data-slot="row-action"]')).toBeNull()
+    },
+  )
+
+  it.each(['/mas', '/partidas', '/sobres/promo', '/coleccion/importar', '/torneos/semana', '/mazos/1/editar'])(
     'is not drawn at %s, and the page ends right above the bar',
     async (path) => {
       renderAt(path)
@@ -534,5 +591,14 @@ describe('the fixed row', () => {
     act(() => writeLook({ views: 'top' }))
     await go(router, '/mazos')
     expect(row()).toContainElement(screen.getByRole('link', { name: 'Nuevo mazo' }))
+    // And a screen with views and an action leaves the action alone in the row, with its text: the «+» too.
+    await go(router, '/simulacion')
+    expect(banner()).toContainElement(views('Vistas de Pruebas'))
+    const plus = within(row() as HTMLElement).getByRole('link', { name: 'Nueva simulación' })
+    expect(plus).toHaveTextContent(/^Nueva simulación$/)
+    expect(plus).not.toHaveAttribute('title')
+    expect(screen.getByRole('main')).toHaveClass(
+      'pb-[calc(var(--bar-h)+var(--row-h)+54px+env(safe-area-inset-bottom))]',
+    )
   })
 })

@@ -536,14 +536,24 @@ describe('SourceBlock', () => {
       },
     )
 
-    it('beside any other name the seal says its source: «Vos contra él» does not say whose number it is', () => {
+    it.each([
+      ['tournament', 'Torneo'],
+      ['simulation', 'Simulación'],
+      ['simulation', 'Laboratorio: bots g2'],
+      ['matches', 'Partidas de la era'],
+    ] as const)('%s: beside «%s», a name that already says its source, the seal is decoration', (source, name) => {
+      // The API's labels: a reader would hear «Torneos, Torneo» and «Bots, Simulación» (review of #211).
+      const block = root(<SourceBlock source={source} name={name} figure={EXACT_LIST} size="lane" />)
+      expect(block.querySelector('[data-slot="source-seal"]')).toHaveAttribute('aria-hidden', 'true')
+      expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    })
+
+    it('beside a name that does not say its source the seal says it: «Vos contra él» does not say whose it is', () => {
       const mine = root(<SourceBlock source="matches" name="Vos contra él" figure={MINE} />)
       expect(mine).toContainElement(screen.getByRole('img', { name: 'Mis partidas' }))
-      const bots = root(<SourceBlock source="simulation" name="Laboratorio: bots g2" figure={null} />)
+      // Another source's word is not this one's: «Torneo» beside the bots' seal still names the bots.
+      const bots = root(<SourceBlock source="simulation" name="Torneo del banco" figure={null} />)
       expect(bots).toContainElement(screen.getByRole('img', { name: 'Bots' }))
-      // «Torneo» is not «Torneos»: said twice rather than not at all.
-      const tournament = root(<SourceBlock source="tournament" name="Torneo" figure={EXACT_LIST} size="lane" />)
-      expect(tournament).toContainElement(screen.getByRole('img', { name: 'Torneos' }))
     })
 
     it('the seal is 18 px, before the name, and a long name wraps beside it instead of being cut', () => {

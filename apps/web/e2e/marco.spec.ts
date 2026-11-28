@@ -15,7 +15,7 @@ const ROW = 60
 const SCREENS: [path: string, row: boolean][] = [
   ['/partidas', false],
   ['/mazos', true],
-  ['/mazos/1', false],
+  ['/mazos/1', true],
   ['/sobres', true],
   ['/coleccion', true],
   ['/torneos', true],
@@ -29,6 +29,7 @@ const SCREENS: [path: string, row: boolean][] = [
 const bar = (page: Page) => page.getByRole('navigation', { name: 'Secciones' })
 const tab = (page: Page, name: string) => bar(page).getByRole('link', { name, exact: true })
 const row = (page: Page) => page.locator('[data-slot="fixed-row"]')
+const action = (page: Page) => row(page).locator('[data-slot="row-action"]')
 // The one h1 of a screen, the header's: a page that wrote a second one would make this ambiguous, and fail.
 const title = (page: Page) => page.getByRole('heading', { level: 1 })
 const scrollY = (page: Page) => page.evaluate(() => window.scrollY)
@@ -141,6 +142,29 @@ for (const width of [360, 375, 412, 1280]) {
   })
 }
 
+for (const width of [360, 375, 412, 1280]) {
+  test(`nothing of a page is under its row at ${width} px, where the row holds an action`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 780 })
+    for (const to of ['/mazos', '/mazos/1', '/simulacion', '/coleccion']) {
+      await open(page, to)
+      await expect(action(page), to).toBeVisible()
+      await expect
+        .poll(
+          () =>
+            page.evaluate(() => {
+              window.scrollTo(0, document.documentElement.scrollHeight)
+              const last = document.querySelector('main')?.lastElementChild?.getBoundingClientRect().bottom
+              const zone = document.querySelector('[data-slot="bottom-zone"]')?.getBoundingClientRect().top
+              const atEnd = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 1
+              return last === undefined || zone === undefined || !atEnd ? Number.NaN : last - zone
+            }),
+          { message: `${to} at ${width} px: scrolled to the end, the page ends above the bottom zone` },
+        )
+        .toBeLessThanOrEqual(0.5)
+    }
+  })
+}
+
 test.describe('on a 360 px phone', () => {
   test.use({ viewport: { width: 360, height: 780 } })
 
@@ -224,6 +248,19 @@ test.describe('on a 360 px phone', () => {
     expect(await bottom(row(page))).toBeLessThanOrEqual((await top('tab-bar')) + 0.5)
     await open(page, '/mazos')
     await page.getByRole('link', { name: 'Nuevo mazo' }).click({ trial: true })
+    // The actions of phase 1, each from the top of its screen. A trial: «Sincronizar» would ask for the preview.
+    for (const [to, name] of [
+      ['/mazos/1', 'Registrar partida con este mazo'],
+      ['/simulacion', 'Nueva simulación'],
+      ['/coleccion', 'Sincronizar la colección con el tracker'],
+    ] as const) {
+      await open(page, to)
+      await page.evaluate(() => window.scrollTo(0, 0))
+      const target = action(page)
+      await expect(target, to).toHaveAccessibleName(name)
+      expect(await reach(target), `${name} from the top of ${to}`).toMatchObject({ onTop: true, overTheBar: true })
+      await target.click({ trial: true })
+    }
     // And every tab, with the row above them.
     for (const name of ['Hoy', 'Mazos', 'Cartas', 'Meta', 'Pruebas']) await tab(page, name).click({ trial: true })
     await bar(page).getByRole('button', { name: 'Buscar' }).click({ trial: true })
@@ -365,6 +402,18 @@ test.describe('on a 360 px phone', () => {
     await expect(sheet).toBeHidden()
     await expect(row(page)).toBeVisible()
 
+    // The deck's own sheet: its row now holds «Registrar partida».
+    await open(page, '/mazos/1')
+    await expect(action(page)).toBeVisible()
+    await page.getByRole('button', { name: 'Más acciones' }).click()
+    await page.getByRole('menuitem', { name: 'Exportar…' }).click()
+    const exporting = page.getByRole('dialog', { name: /^Exportar/ })
+    await expect(exporting).toBeVisible()
+    await expect(row(page)).toBeHidden()
+    await page.keyboard.press('Escape')
+    await expect(exporting).toBeHidden()
+    await expect(action(page)).toBeVisible()
+
     await open(page, '/sobres')
     await expect(row(page)).toBeVisible()
     const magnifier = bar(page).getByRole('button', { name: 'Buscar' })
@@ -402,9 +451,14 @@ test.describe('on a 360 px phone', () => {
     const screens: [string, number][] = [
       ['/partidas', 7],
       ['/mazos', 8],
-      ['/mazos/1', 10],
+      // The pager and «Volver» in the header, and the row's «Registrar partida».
+      ['/mazos/1', 11],
       ['/sobres', 9],
+      // Two views and «Sincronizar».
+      ['/coleccion', 10],
       ['/laboratorio', 10],
+      // Three views and the «+».
+      ['/simulacion', 11],
       ['/partidas/historial', 8],
       ['/mas', 7],
     ]
@@ -422,6 +476,210 @@ test.describe('on a 360 px phone', () => {
     const top = await small()
     expect(top.small).toEqual([])
     expect(top.count).toBe(10)
+    // And the «+», alone in the row with its text, under the views of the header.
+    await open(page, '/simulacion')
+    await expect(page.locator('header').getByRole('tablist', { name: 'Vistas de Pruebas' })).toBeVisible()
+    const alone = await small()
+    expect(alone.small).toEqual([])
+    expect(alone.count).toBe(11)
+  })
+
+  test('the action of the row: the «+» 48 × 48 beside three views, «Sincronizar» with its text beside two', async ({
+    page,
+  }) => {
+    const parts = () =>
+      page.evaluate(() => {
+        const box = (element: Element | null) => {
+          const rect = element?.getBoundingClientRect()
+          return rect
+            ? {
+                left: Math.round(rect.left * 10) / 10,
+                right: Math.round(rect.right * 10) / 10,
+                width: Math.round(rect.width * 10) / 10,
+                height: Math.round(rect.height * 10) / 10,
+              }
+            : null
+        }
+        const fixed = document.querySelector('[data-slot="fixed-row"]')
+        const act = fixed?.querySelector<HTMLElement>('[data-slot="row-action"]') ?? null
+        return {
+          row: box(fixed),
+          action: box(act),
+          icon: box(act?.querySelector('svg') ?? null),
+          text: act?.innerText.trim() ?? null,
+          // A text that does not fit would be wider than its box, or break onto a second line inside it.
+          spills: act ? act.scrollWidth - act.clientWidth : null,
+          lines: (() => {
+            const written = [...(act?.childNodes ?? [])].find((node) => node.nodeType === Node.TEXT_NODE)
+            if (!written) return 0
+            const range = document.createRange()
+            range.selectNodeContents(written)
+            return new Set([...range.getClientRects()].map((line) => Math.round(line.top))).size
+          })(),
+          views: [...(fixed?.querySelectorAll('[role="tab"]') ?? [])].map((view) => box(view)),
+        }
+      })
+
+    // Simulación: the first «+» of the app, its icon alone, at the right of the three views.
+    await open(page, '/simulacion')
+    const plus = await parts()
+    const fixed = plus.row
+    if (!fixed || !plus.action) throw new Error('no row or no action on /simulacion')
+    expect(fixed.width).toBeCloseTo(336, 0)
+    expect(plus.action).toMatchObject({ width: 48, height: 48 })
+    expect(plus.icon).toMatchObject({ width: 24, height: 24 })
+    expect(plus.text).toBe('')
+    expect(plus.lines).toBe(0)
+    // The edge of the row and its 5 px inside.
+    expect(plus.action.right).toBeCloseTo(fixed.right - 6, 0)
+    expect(plus.views).toHaveLength(3)
+    for (const view of plus.views) {
+      expect(view?.height).toBe(48)
+      expect(view?.width ?? 0).toBeGreaterThanOrEqual(60)
+      expect(view?.right ?? 0).toBeLessThanOrEqual(plus.action.left)
+    }
+    await expect(action(page)).toHaveAttribute('aria-label', 'Nueva simulación')
+    await expect(action(page)).toHaveAttribute('title', 'Nueva simulación')
+    await expect(action(page)).toHaveAttribute('href', '/simulacion/nueva')
+
+    // Colección: «Sincronizar» keeps its icon and its text, whole, and the two views share what is left.
+    await open(page, '/coleccion')
+    const sync = await parts()
+    if (!sync.row || !sync.action) throw new Error('no row or no action on /coleccion')
+    expect(sync.text).toBe('Sincronizar')
+    expect(sync.lines).toBe(1)
+    expect(sync.spills).toBeLessThanOrEqual(0)
+    expect(sync.action.height).toBe(48)
+    expect(sync.action.width).toBeGreaterThan(120)
+    expect(sync.action.width).toBeLessThan(170)
+    expect(sync.icon).toMatchObject({ width: 20, height: 20 })
+    expect(sync.action.right).toBeCloseTo(sync.row.right - 6, 0)
+    expect(sync.views).toHaveLength(2)
+    for (const view of sync.views) {
+      expect(view?.height).toBe(48)
+      expect(view?.width ?? 0).toBeGreaterThanOrEqual(60)
+      expect(view?.right ?? 0).toBeLessThanOrEqual(sync.action.left)
+    }
+    await expect(action(page)).toHaveAccessibleName('Sincronizar la colección con el tracker')
+    expect(await action(page).evaluate((element) => element.tagName)).toBe('BUTTON')
+
+    // A deck: «Registrar partida», alone in the row with its text, as wide as the row lets it.
+    await open(page, '/mazos/1')
+    const deck = await parts()
+    if (!deck.row || !deck.action) throw new Error('no row or no action on /mazos/1')
+    expect(deck.text).toBe('Registrar partida')
+    expect(deck.lines).toBe(1)
+    expect(deck.action).toMatchObject({ height: 48 })
+    expect(deck.action.width).toBeCloseTo(deck.row.width - 12, 0)
+    expect(deck.views).toEqual([])
+    await expect(action(page)).toHaveAccessibleName('Registrar partida con este mazo')
+    await expect(action(page)).toHaveAttribute('href', '/partidas?mazo=1')
+
+    // With the views «arriba», the «+» is alone in the row too, with its text.
+    await page.evaluate(() => localStorage.setItem('tcg.look', JSON.stringify({ views: 'top' })))
+    await open(page, '/simulacion')
+    const top = await parts()
+    expect(top.text).toBe('Nueva simulación')
+    expect(top.lines).toBe(1)
+    expect(top.views).toEqual([])
+    expect(top.action?.width ?? 0).toBeCloseTo((top.row?.width ?? 0) - 12, 0)
+    await expect(action(page)).not.toHaveAttribute('title')
+  })
+
+  test('where the system forces its colours the action keeps an edge of its own, and the «+» its 48 × 48', async ({
+    page,
+  }) => {
+    // The system drops the fill, the only edge the action has: it draws one, which the system paints.
+    await page.emulateMedia({ forcedColors: 'active' })
+    const edge = () =>
+      page.evaluate(() => {
+        const act = document.querySelector('[data-slot="fixed-row"] [data-slot="row-action"]')
+        if (!act) return null
+        const style = getComputedStyle(act)
+        const rect = act.getBoundingClientRect()
+        return {
+          forced: matchMedia('(forced-colors: active)').matches,
+          width: Number.parseFloat(style.borderTopWidth),
+          style: style.borderTopStyle,
+          // Painted in another colour than the row it sits on.
+          seen:
+            style.borderTopColor !==
+            getComputedStyle(act.closest('[data-slot="fixed-row"]') as Element).backgroundColor,
+          box: { width: Math.round(rect.width * 10) / 10, height: Math.round(rect.height * 10) / 10 },
+        }
+      })
+    for (const to of ['/simulacion', '/coleccion', '/mazos/1', '/mazos']) {
+      await open(page, to)
+      const seen = await edge()
+      expect(seen, to).toMatchObject({ forced: true, style: 'solid', seen: true })
+      expect(seen?.width ?? 0, to).toBeGreaterThanOrEqual(1)
+      expect(seen?.box.height, to).toBe(48)
+      if (to === '/simulacion') expect(seen?.box, to).toEqual({ width: 48, height: 48 })
+    }
+  })
+
+  test('with a larger default font the row keeps its pixels: the «+» 48 × 48, the views 48 tall, all inside', async ({
+    page,
+  }) => {
+    // A browser's «muy grande» (24 px) grows what is in rem; the row, its views and its action are in pixels.
+    const inside = () =>
+      page.evaluate(() => {
+        const fixed = document.querySelector('[data-slot="fixed-row"]')
+        const act = fixed?.querySelector('[data-slot="row-action"]')
+        if (!fixed || !act) return null
+        const edges = fixed.getBoundingClientRect()
+        const round = (value: number) => Math.round(value * 10) / 10
+        const parts = [act, ...fixed.querySelectorAll('[role="tab"]')].map((part) => {
+          const rect = part.getBoundingClientRect()
+          return {
+            left: round(rect.left),
+            width: round(rect.width),
+            height: round(rect.height),
+            // Inside the row's 5 px of padding and its 1 px edge.
+            inside:
+              rect.left >= edges.left + 5.5 &&
+              rect.right <= edges.right - 5.5 &&
+              rect.top >= edges.top + 5.5 &&
+              rect.bottom <= edges.bottom - 5.5,
+          }
+        })
+        return {
+          root: getComputedStyle(document.documentElement).fontSize,
+          row: { left: round(edges.left), width: round(edges.width), height: round(edges.height) },
+          action: parts[0],
+          views: parts.slice(1),
+          lines: (() => {
+            const written = [...act.childNodes].find((node) => node.nodeType === Node.TEXT_NODE)
+            if (!written) return 0
+            const range = document.createRange()
+            range.selectNodeContents(written)
+            return new Set([...range.getClientRects()].map((line) => Math.round(line.top))).size
+          })(),
+        }
+      })
+    // Colección fits the window with either font: there the row has to be drawn exactly as with the default one.
+    await open(page, '/coleccion')
+    const usual = await inside()
+    expect(usual?.root).toBe('16px')
+
+    const cdp = await page.context().newCDPSession(page)
+    await cdp.send('Page.setFontSizes', { fontSizes: { standard: 24, fixed: 24 } })
+    for (const [to, count] of [
+      ['/coleccion', 2],
+      ['/simulacion', 3],
+    ] as const) {
+      await open(page, to)
+      const seen = await inside()
+      if (!seen) throw new Error(`no row or no action on ${to}`)
+      expect(seen.root, 'the larger default font is on').toBe('24px')
+      expect(seen.row.height, to).toBe(ROW)
+      expect(seen.views, to).toHaveLength(count)
+      for (const part of [seen.action, ...seen.views]) {
+        expect(part, `${to}: ${JSON.stringify(part)}`).toMatchObject({ height: 48, inside: true })
+      }
+      if (to === '/coleccion') expect({ ...seen, root: '16px' }).toEqual(usual)
+      if (to === '/simulacion') expect(seen.action).toMatchObject({ width: 48, height: 48 })
+    }
   })
 
   test('the skip link is the first stop: it moves the focus to the page and leaves the address alone', async ({
@@ -618,7 +876,7 @@ test.describe('on a 360 px phone', () => {
     })
     await expect(choice('Tema', 'Oscuro')).toBeChecked()
     await expect(choice('Movimiento', 'Expresivo')).toBeChecked()
-    await expect(choice('Dónde van las vistas', 'Abajo, en la fila fija')).toBeChecked()
+    await expect(choice('Dónde van las vistas', 'Abajo, con la acción')).toBeChecked()
 
     await choice('Tema', 'Claro').click()
     await choice('Movimiento', 'Sutil').click()
@@ -700,7 +958,7 @@ test.describe('on a 360 px phone', () => {
     await expect(search).toHaveCount(0)
 
     // Back to the row.
-    await choice('Dónde van las vistas', 'Abajo, en la fila fija').click()
+    await choice('Dónde van las vistas', 'Abajo, con la acción').click()
     await choice('Tema', 'Oscuro').click()
     expect((await look()).stored).toEqual({ theme: 'dark', motion: 'none', views: 'bottom' })
     await tab(page, 'Cartas').click()

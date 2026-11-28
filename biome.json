@@ -62,6 +62,16 @@
           }
         }
       }
+    },
+    {
+      "includes": ["**/e2e/**"],
+      "linter": {
+        "rules": {
+          "performance": {
+            "useDomNodeTextContent": "off"
+          }
+        }
+      }
     }
   ]
 }

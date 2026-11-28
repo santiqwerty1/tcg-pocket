@@ -1,17 +1,35 @@
-import { FlaskConicalIcon, GalleryHorizontalEndIcon, LayersIcon, PlusIcon, SunIcon, TrophyIcon } from 'lucide-react'
+import {
+  FlaskConicalIcon,
+  GalleryHorizontalEndIcon,
+  LayersIcon,
+  PlusIcon,
+  RefreshCwIcon,
+  SunIcon,
+  TrophyIcon,
+} from 'lucide-react'
 import type { RouteObject } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import type { RouteHandle } from './AppShell'
-import { FORGOTTEN_QUERY, frameFor, isMenuPath, normalizePath, rememberedSearch, TABS } from './frame'
+import {
+  FORGOTTEN_QUERY,
+  frameFor,
+  isMenuPath,
+  matchPattern,
+  normalizePath,
+  ROW_ACTIONS,
+  rememberedSearch,
+  TABS,
+} from './frame'
 import { routes } from './routes'
 
-/** Every route of the table that has a path, with its handle; `:params` filled with a sample. */
-function declared(list: RouteObject[] = routes): { path: string; handle: RouteHandle | undefined }[] {
+/** Every route of the table that has a path, with its handle and its pattern; `:params` filled with a sample. */
+function declared(list: RouteObject[] = routes): { path: string; pattern: string; handle: RouteHandle | undefined }[] {
   return list.flatMap((route) => [
     ...(route.path !== undefined && route.path !== '/'
       ? [
           {
             path: route.path === '*' ? '*' : `/${route.path.replace(/:\w+/g, '1')}`,
+            pattern: route.path === '*' ? '*' : `/${route.path}`,
             handle: route.handle as RouteHandle | undefined,
           },
         ]
@@ -19,6 +37,14 @@ function declared(list: RouteObject[] = routes): { path: string; handle: RouteHa
     ...declared(route.children ?? []),
   ])
 }
+
+/** The table of the row's actions as data: a link with where it goes from a sample of its parameters. */
+const actionTable = () =>
+  ROW_ACTIONS.map(({ pattern, where, spec }) => {
+    if (spec.kind === 'button') return { pattern, where, ...spec }
+    const { to, ...rest } = spec
+    return { pattern, where, ...rest, to: to({ deckId: '12' }) }
+  })
 
 describe('the frame table', () => {
   it('has the five tabs of mock-up D, in order, each with its start, what lights it and its views', () => {
@@ -141,15 +167,88 @@ describe('the frame table', () => {
     }
   })
 
-  it('has one action for the fixed row: «Nuevo mazo», on the list of decks and nowhere else', () => {
-    expect(frameFor('/mazos').action).toEqual({ label: 'Nuevo mazo', icon: PlusIcon, to: '/mazos/nuevo' })
-    const withAction = declared()
-      .filter(({ path }) => path !== '*' && frameFor(path).action !== null)
+  it('the actions of the fixed row, route by route: exactly these', () => {
+    expect(actionTable()).toEqual([
+      { pattern: '/mazos', label: 'Nuevo mazo', icon: PlusIcon, kind: 'link', to: '/mazos/nuevo' },
+      // A link with its text (the deck has no views until phase 3), to Hoy with the deck chosen.
+      {
+        pattern: '/mazos/:deckId',
+        where: { deckId: /^\d+$/ },
+        label: 'Registrar partida',
+        ariaLabel: 'Registrar partida con este mazo',
+        icon: PlusIcon,
+        kind: 'link',
+        to: '/partidas?mazo=12',
+      },
+      // A button that keeps its text beside the two views of Cartas; the page gives it today's sync.
+      {
+        pattern: '/coleccion',
+        label: 'Sincronizar',
+        ariaLabel: 'Sincronizar la colección',
+        icon: RefreshCwIcon,
+        display: 'text',
+        kind: 'button',
+        pendingLabel: 'Sincronizando…',
+      },
+      // The first «+» of the app: its icon alone, beside the three views of Pruebas.
+      { pattern: '/simulacion', label: 'Nueva simulación', icon: PlusIcon, kind: 'link', to: '/simulacion/nueva' },
+    ])
+    // A deck's number is written in the address as it is given.
+    const deck = ROW_ACTIONS.find(({ pattern }) => pattern === '/mazos/:deckId')?.spec
+    expect(deck?.kind === 'link' && deck.to({ deckId: '7 b' })).toBe('/partidas?mazo=7%20b')
+  })
+
+  it('each route of the table has the action of its own pattern, and these are all the screens with one', () => {
+    const withAction = Object.fromEntries(
+      declared()
+        .filter(({ path }) => path !== '*' && frameFor(path).action !== null)
+        .map(({ path }) => [path, frameFor(path).action?.spec.label]),
+    )
+    expect(withAction).toEqual({
+      '/mazos': 'Nuevo mazo',
+      '/mazos/1': 'Registrar partida',
+      '/coleccion': 'Sincronizar',
+      '/simulacion': 'Nueva simulación',
+    })
+    // The pattern of the action that a route's sample path finds is that route's own: `/mazos/:deckId` does not take
+    // the screens beside it (`/mazos/nuevo`, `/mazos/importar`, `/mazos/hoy`, `/mazos/despues`) for a deck.
+    for (const { path, pattern } of declared()) {
+      if (path === '*') continue
+      const found = frameFor(path).action
+      if (!found) continue
+      expect(ROW_ACTIONS.find((row) => row.spec === found.spec)?.pattern, path).toBe(pattern)
+    }
+    for (const path of ['/mazos/nuevo', '/mazos/importar', '/mazos/hoy', '/mazos/despues', '/mazos/abc']) {
+      expect(frameFor(path).action, path).toBeNull()
+    }
+    // And every pattern of the table is a route that exists.
+    const patterns = declared().map(({ pattern }) => pattern)
+    for (const { pattern } of ROW_ACTIONS) expect(patterns, pattern).toContain(pattern)
+    // The parameters come from the path.
+    expect(frameFor('/mazos/40').action?.params).toEqual({ deckId: '40' })
+    expect(frameFor('/mazos').action?.params).toEqual({})
+  })
+
+  it('beside views an action is an icon (or keeps its text, with its icon): these two screens have both', () => {
+    const both = declared()
+      .filter(({ path }) => path !== '*' && frameFor(path).views !== null && frameFor(path).action !== null)
       .map(({ path }) => path)
-    expect(withAction).toEqual(['/mazos'])
-    // No screen has views and an action in this phase.
-    for (const { path } of declared()) {
-      if (path !== '*' && frameFor(path).views) expect(frameFor(path).action, path).toBeNull()
+    expect(both).toEqual(['/simulacion', '/coleccion'])
+    for (const { pattern, spec } of ROW_ACTIONS) {
+      const sample = pattern.replace(/:\w+/g, '1')
+      if (frameFor(sample).views === null) continue
+      // With display 'auto' the icon is all there is; with 'text' it goes before the text, as in D.
+      expect(spec.icon, pattern).toBeDefined()
+      expect(['auto', 'text'], pattern).toContain(spec.display ?? 'auto')
+    }
+    // A link knows where it goes and a button does not; only a button may open a dialog.
+    for (const { pattern, spec } of ROW_ACTIONS) {
+      if (spec.kind === 'link') expect(typeof spec.to, pattern).toBe('function')
+      else expect('to' in spec, pattern).toBe(false)
+    }
+    // An accessible name that says more starts with what is seen.
+    for (const { pattern, spec } of ROW_ACTIONS) {
+      if (spec.ariaLabel) expect(spec.ariaLabel.startsWith(spec.label), pattern).toBe(true)
     }
   })
 
@@ -180,7 +279,9 @@ describe('the frame table', () => {
     expect(normalizePath('')).toBe('/')
 
     expect(frameFor('/mazos/')).toEqual(frameFor('/mazos'))
-    expect(frameFor('/MAZOS').action?.to).toBe('/mazos/nuevo')
+    expect(frameFor('/MAZOS').action?.spec.label).toBe('Nuevo mazo')
+    expect(frameFor('/Mazos/12/')).toEqual(frameFor('/mazos/12'))
+    expect(frameFor('/coleccion?vista=edicion').action?.spec.label).toBe('Sincronizar')
     expect(frameFor('/SOBRES')).toEqual(frameFor('/sobres'))
     expect(frameFor('/SOBRES').viewsLabel).toBe('Vistas de Cartas')
     expect(frameFor('/coleccion?vista=edicion')).toEqual(frameFor('/coleccion'))
@@ -203,6 +304,40 @@ describe('the frame table', () => {
     // What has nothing to drop comes back as it was, character by character.
     expect(rememberedSearch('/mazos', '?etiqueta=a%20b&armados=1')).toBe('?etiqueta=a%20b&armados=1')
     expect(rememberedSearch('/mazos', '')).toBe('')
+  })
+})
+
+describe('a route pattern against a path', () => {
+  it('matches segment by segment, as the router: without case for the fixed ones, the parameters as written', () => {
+    expect(matchPattern('/mazos', '/mazos')).toEqual({})
+    expect(matchPattern('/mazos/:deckId', '/mazos/12')).toEqual({ deckId: '12' })
+    expect(matchPattern('/mazos/:deckId', '/MAZOS/12')).toEqual({ deckId: '12' })
+    expect(matchPattern('/torneos/arquetipos/:id', '/torneos/arquetipos/Gardevoir-ex')).toEqual({ id: 'Gardevoir-ex' })
+    expect(matchPattern('/a/:x/b/:y', '/a/1/B/2')).toEqual({ x: '1', y: '2' })
+    // Decoded, as `useParams` gives them.
+    expect(matchPattern('/grupos/:groupId', '/grupos/B3b-64%20x')).toEqual({ groupId: 'B3b-64 x' })
+  })
+
+  it('the query, the fragment and trailing slashes do not count', () => {
+    expect(matchPattern('/mazos/:deckId', '/mazos/12/')).toEqual({ deckId: '12' })
+    expect(matchPattern('/mazos/:deckId', '/mazos/12?x=1#y')).toEqual({ deckId: '12' })
+    expect(matchPattern('/coleccion', '/coleccion?vista=edicion')).toEqual({})
+    expect(matchPattern('/coleccion', '/coleccion//')).toEqual({})
+  })
+
+  it('does not match another number of segments, another fixed segment, an empty parameter or a broken escape', () => {
+    expect(matchPattern('/mazos/:deckId', '/mazos')).toBeNull()
+    expect(matchPattern('/mazos/:deckId', '/mazos/12/editar')).toBeNull()
+    expect(matchPattern('/mazos', '/mazosx')).toBeNull()
+    expect(matchPattern('/mazos', '/')).toBeNull()
+    // Another number of segments, before any parameter is looked at.
+    expect(matchPattern('/mazos/:deckId', '/mazos//')).toBeNull()
+    expect(matchPattern('/mazos/:deckId', '/mazos//12')).toBeNull()
+    // The same number, with the parameter empty: a pattern with one in the middle (the deck's views of phase 3).
+    expect(matchPattern('/a/:x/b', '/a//b')).toBeNull()
+    expect(matchPattern('/mazos/:deckId/:view', '/mazos//partidas')).toBeNull()
+    expect(matchPattern('/mazos/:deckId', '/cartas/12')).toBeNull()
+    expect(matchPattern('/grupos/:groupId', '/grupos/%E0%A4%A')).toBeNull()
   })
 })
 

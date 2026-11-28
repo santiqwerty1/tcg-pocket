@@ -335,16 +335,20 @@ describe('Menú → Aspecto', () => {
   it('«Dónde van las vistas»: in the fixed row or in tabs under the header, and the frame follows', async () => {
     const user = userEvent.setup()
     const router = renderAt()
-    expect(radios('Dónde van las vistas')).toEqual(['Abajo, en la fila fija ✓', 'Arriba, en pestañas'])
-    const fine = within(main()).getByText('Las de Cartas, Meta y Pruebas. Abajo: en la fila fija, arriba de la barra.')
+    expect(radios('Dónde van las vistas')).toEqual(['Abajo, con la acción ✓', 'Arriba, en pestañas'])
+    const fine = within(main()).getByText(
+      'Las de Cartas, Meta y Pruebas. Abajo: en la fila fija, arriba de la barra, junto a la acción cuando la pantalla tiene una.',
+    )
     expect(group('Dónde van las vistas')).toHaveAttribute('aria-describedby', fine.id)
 
     await user.click(radio('Dónde van las vistas', 'Arriba, en pestañas'))
     expect(stored()).toEqual({ views: 'top' })
     expect(readLook().views).toBe('top')
-    expect(radios('Dónde van las vistas')).toEqual(['Abajo, en la fila fija', 'Arriba, en pestañas ✓'])
+    expect(radios('Dónde van las vistas')).toEqual(['Abajo, con la acción', 'Arriba, en pestañas ✓'])
     expect(
-      within(main()).getByText('Las de Cartas, Meta y Pruebas. Arriba: pestañas pegadas bajo el encabezado.'),
+      within(main()).getByText(
+        'Las de Cartas, Meta y Pruebas. Arriba: pestañas pegadas bajo el encabezado; la fila fija queda para la acción, con su texto.',
+      ),
     ).toBeInTheDocument()
 
     // On a screen with views they are now in the header.
@@ -354,7 +358,7 @@ describe('Menú → Aspecto', () => {
     expect(document.querySelector('[data-slot="fixed-row"]')).toBeNull()
 
     await act(() => router.navigate('/mas'))
-    await user.click(radio('Dónde van las vistas', 'Abajo, en la fila fija'))
+    await user.click(radio('Dónde van las vistas', 'Abajo, con la acción'))
     expect(stored()).toEqual({ views: 'bottom' })
   })
 
@@ -460,7 +464,7 @@ describe('Menú → Aspecto', () => {
     await arrow('ArrowLeft', radio('Movimiento', 'Ninguno'))
     expect(motion()).toBe('none')
     await user.tab()
-    expect(radio('Dónde van las vistas', 'Abajo, en la fila fija')).toHaveFocus()
+    expect(radio('Dónde van las vistas', 'Abajo, con la acción')).toHaveFocus()
     await arrow('ArrowRight', radio('Dónde van las vistas', 'Arriba, en pestañas'))
     expect(stored()).toEqual({ theme: 'light', motion: 'none', views: 'top' })
   })

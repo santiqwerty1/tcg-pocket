@@ -15,6 +15,7 @@ import {
 } from '@/api/decks'
 import { DECK_EXPORT_FORMATS, type DeckCard, type DeckDetail, type DeckExportFormat } from '@/api/schemas'
 import { usePageTitle } from '@/app/AppShell'
+import { usePageAction } from '@/app/pageAction'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { DeckNumber } from '@/components/DeckNumber'
 import { EnergyChips } from '@/components/EnergyChip'
@@ -133,6 +134,12 @@ function DeckDetailView({ deckId }: { deckId: string | undefined }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [restoring, setRestoring] = useState<number | null>(null)
   usePageTitle(deck.data?.name)
+  // The fixed row's «Registrar partida» (`frame.ts`): an archived deck is not played, so it has none. Until the deck
+  // arrives, the list of active decks this page asks for anyway (often left by the list it was opened from) already
+  // says it: a deck that is not in it is archived, or not there at all.
+  const listed = activeDecks.data?.some((item) => item.id === deckId) ?? false
+  const archived = deck.data ? Boolean(deck.data.archivedAt) : activeDecks.data !== undefined && !listed
+  usePageAction(archived ? { hidden: true } : null)
 
   if (deck.isPending) return <LoadingRows />
   if (deck.isError) return <ErrorState error={deck.error} onRetry={() => deck.refetch()} />
@@ -354,11 +361,7 @@ function DeckDetailView({ deckId }: { deckId: string | undefined }) {
         <CardGroups deck={data} />
       </Section>
 
-      <DeckPerformance
-        deckId={data.id}
-        archived={Boolean(data.archivedAt)}
-        tournamentArchetypeId={data.tournamentArchetypeId ?? null}
-      />
+      <DeckPerformance deckId={data.id} tournamentArchetypeId={data.tournamentArchetypeId ?? null} />
 
       {/* The rest opens on demand and only then asks the server (Fase 41); each one remembers if it was left open. */}
       <div className="flex flex-col gap-2">

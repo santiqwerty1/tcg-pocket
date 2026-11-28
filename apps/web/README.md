@@ -6,10 +6,10 @@ El marco es el de la maqueta D (`docs/prototipos/renovacion-ui/DIRECCION-D.md`),
 
 - **Encabezado**: el título y, a la derecha, el camino al Menú con el punto de los avisos. Una pantalla interior lleva «Volver», que sube a la pantalla de arriba cuando no hay una de la app detrás.
 - **Barra de pestañas**: Hoy · Mazos · Cartas · Meta · Pruebas y la lupa del buscador (también con «/»). Cada pestaña recuerda dónde estaba; tocar la que está encendida lleva a su inicio.
-- **Fila fija**, arriba de la barra: las vistas de la pantalla (Cartas: Sobres y Colección; Meta: Torneos y Eventos; Pruebas: Laboratorio, Simulación y Practicar) y su acción («Nuevo mazo» en Mazos).
+- **Fila fija**, arriba de la barra: las vistas de la pantalla (Cartas: Sobres y Colección; Meta: Torneos y Eventos; Pruebas: Laboratorio, Simulación y Practicar) y su acción: «Nuevo mazo» en Mazos, «Registrar partida» en un mazo (no en uno archivado), el «+» de Simulación y «Sincronizar» en Colección. Junto a las vistas la acción es su ícono solo, de 48 × 48, salvo «Sincronizar», que conserva su texto; sola en la fila va con su texto, a todo el ancho.
 - **Menú** (`/mas`): los avisos, las pantallas que la maqueta todavía no ubica, «Aspecto» y «Ajustes y sistema».
 
-El aspecto se elige en cada dispositivo, en Menú → Aspecto: el tema (oscuro por defecto, claro o el del sistema), el movimiento (Expresivo, Sutil o Ninguno; queda en Ninguno cuando el sistema pide reducirlo) y dónde van las vistas (abajo, en la fila fija, o arriba, en pestañas bajo el encabezado).
+El aspecto se elige en cada dispositivo, en Menú → Aspecto: el tema (oscuro por defecto, claro o el del sistema), el movimiento (Expresivo, Sutil o Ninguno; queda en Ninguno cuando el sistema pide reducirlo) y dónde van las vistas (abajo, con la acción, o arriba, en pestañas bajo el encabezado).
 
 ## Correr en desarrollo
 
@@ -48,12 +48,13 @@ La API sirve `dist/` detrás del middleware de sesión (`WEB_DIST`).
 | Fixtures de respuestas realistas (ids reales como `B2-113`, `B3b-64`) | `src/api/__fixtures__/` |
 | Rutas (las pantallas pesadas se cargan al abrirlas) y errores de pantalla en español | `src/app/routes.tsx`, `src/app/RouteError.tsx` |
 | El marco: encabezado, «Volver» (`useGoBack`), barra de pestañas y fila fija | `src/app/AppShell.tsx`, `src/app/TabBar.tsx`, `src/app/FixedRow.tsx` |
-| Qué pestaña, qué vistas y qué acción tiene cada ruta (una sola tabla) y lo que el marco recuerda mientras está abierto | `src/app/frame.ts`, `src/app/frameMemory.ts` |
+| Qué pestaña, qué vistas y qué acción tiene cada ruta (una sola tabla, la acción por patrón de ruta) y lo que el marco recuerda mientras está abierto | `src/app/frame.ts`, `src/app/frameMemory.ts` |
+| Lo que solo la página sabe de la acción de su fila (`usePageAction`: el manejador de un botón, «trabajando», escondida, un texto de sus datos) y la acción misma, que también dibuja la galería | `src/app/pageAction.tsx`, `src/app/RowAction.tsx` |
 | La barra que una página deja siempre a mano («Guardar partida», «Guardar» del editor) | `src/components/StickyActions.tsx` |
 | Páginas | `src/pages/*/` (partidas = «Hoy», mazos, coleccion, cartas, sobres, torneos, simulacion, laboratorio, jugar, eventos, mas = el Menú y sus páginas) |
 | Componentes propios (`Stat` con n e IC 95 %, chips de energía, stepper, estados de lista) | `src/components/` |
 | Piezas de la maqueta D (fase 1): el sello de la fuente (M, T, B), las marcas, los mini-gráficos, la cifra (un porcentaje con su n), el bloque de una fuente y su leyenda. Reciben sus datos y no piden nada; `lib/figure.ts` convierte las formas de la API en la cifra que dibujan, y `app/pieces.test.ts` fija sus reglas | `src/components/figures/`, `src/lib/figure.ts` |
-| «Piezas de la interfaz» (`/mas/piezas`, desde Menú → Acerca de): cada pieza en cada uno de sus estados, con datos de prueba inventados; no le pide nada a la API. Es donde los tests de pantallas miden las piezas, y se va cuando termine la renovación | `src/pages/mas/PiecesPage.tsx`, `src/pages/mas/pieces/fixtures.ts`, `e2e/piezas.spec.ts` |
+| «Piezas de la interfaz» (`/mas/piezas`, desde Menú → Acerca de): cada pieza en cada uno de sus estados, con datos de prueba inventados; no le pide nada a la API. Es donde los tests de pantallas miden las piezas, y se borra al terminar la fase 4 de la renovación | `src/pages/mas/PiecesPage.tsx`, `src/pages/mas/pieces/fixtures.ts`, `e2e/piezas.spec.ts` |
 | Componentes generados con la CLI de shadcn (MIT; `components.json`) | `src/components/ui/` |
 | Tema: tokens de la maqueta D en dos temas (`data-theme="dark" \| "light"` en `<html>`), los tres niveles de movimiento (`data-motion`), las medidas del marco, tipografía y `@font-face` | `src/index.css` |
 | El aspecto de este dispositivo (`localStorage['tcg.look']`: tema, movimiento y lugar de las vistas): antes del primer pintado y desde React (`useLook`). La página de ingreso, que sirve la API, repite en línea la regla del tema y copia de `index.css` los tokens que usa, las fuentes de reserva y la columna: `apps/api/src/http/login-page.ts`, con un test que la compara con `look.js` y con `index.css` | `public/look.js`, `src/lib/look.ts` |

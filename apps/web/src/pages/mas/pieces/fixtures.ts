@@ -247,3 +247,6 @@ export const SHARES = [14.3, 7.9, 1.2] as const
 
 /** A count in three parts that is not a record: cards of a set, whole, started and missing. */
 export const COLLECTION = { complete: 212, started: 61, missing: 27 } as const
+
+/** The deck a result of the Laboratorio would update, for an action whose label comes from the data (phase 4). */
+export const UPDATED_DECK = 1

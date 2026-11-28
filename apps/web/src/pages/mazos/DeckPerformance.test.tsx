@@ -226,19 +226,13 @@ const stats = (revisions: number, more: Partial<Stats> = {}) =>
     ...more,
   })
 
-function show(routes: Parameters<typeof fakeApi>[0], props: { archived?: boolean; archetype?: string | null } = {}) {
+function show(routes: Parameters<typeof fakeApi>[0], props: { archetype?: string | null } = {}) {
   const api = fakeApi(routes)
   const router = createMemoryRouter(
     [
       {
         path: '/mazos/:id',
-        element: (
-          <DeckPerformance
-            deckId="40"
-            archived={props.archived ?? false}
-            tournamentArchetypeId={props.archetype ?? null}
-          />
-        ),
+        element: <DeckPerformance deckId="40" tournamentArchetypeId={props.archetype ?? null} />,
       },
     ],
     { initialEntries: ['/mazos/40'] },
@@ -329,13 +323,15 @@ describe('the three sources of a deck', () => {
     ).toEqual(['51,1 %', '12,5 %', '50 %'])
   })
 
-  it('a seal is silent beside the very name of its source, and says its source beside any other name', async () => {
+  it('the seals are silent beside the API’s names, which already say their source: a reader hears each source once', async () => {
     show({ 'GET /api/decks/40/comparison': comparison(MINE, TOURNAMENT, BOTS) })
     const region = await sources()
     const seal = (source: Column['source']) => block(region, source).querySelector('[data-slot="source-seal"]')
-    expect(seal('matches')).toHaveAttribute('aria-hidden', 'true')
-    expect(seal('tournament')).toHaveAccessibleName('Torneos')
-    expect(seal('simulation')).toHaveAccessibleName('Bots')
+    // «Mis partidas», «Torneo» and «Simulación»: no «Torneos, Torneo» nor «Bots, Simulación» (review of #211).
+    for (const source of ['matches', 'tournament', 'simulation'] as const) {
+      expect(seal(source), source).toHaveAttribute('aria-hidden', 'true')
+    }
+    expect(within(region).queryAllByRole('img', { name: /^(Mis partidas|Torneos|Bots)$/ })).toEqual([])
   })
 
   it('one legend for the three: each seal, what «orientativo» counted here, and which interval is written', async () => {
@@ -690,18 +686,13 @@ describe('point 6: the section asks for what it asked before, and for nothing mo
 })
 
 describe('what the section had and keeps', () => {
-  it('its title and the way to log a match with this deck; an archived deck has no such way', async () => {
+  it('its title; the way to log a match with the deck is no longer the section’s, but the fixed row’s', async () => {
     show({ 'GET /api/decks/40/comparison': comparison(MINE, TOURNAMENT_NONE, BOTS) })
-    await sources()
-    expect(screen.getByRole('heading', { level: 2, name: 'Rendimiento' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Registrar partida' })).toHaveAttribute('href', '/partidas?mazo=40')
-  })
-
-  it('an archived deck keeps its numbers and has no «Registrar partida»', async () => {
-    show({ 'GET /api/decks/40/comparison': comparison(MINE, TOURNAMENT_NONE, BOTS) }, { archived: true })
     expect(blocks(await sources())).toHaveLength(3)
     expect(screen.getByRole('heading', { level: 2, name: 'Rendimiento' })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Registrar partida' })).toBeNull()
+    // The 36 px link of its header went to the row (`frame.ts`), where it is a link of 48 px with its text.
+    expect(screen.queryByRole('link', { name: /Registrar partida/ })).toBeNull()
+    expect(document.querySelector('a[href^="/partidas?mazo="]')).toBeNull()
   })
 
   it('while the comparison comes it says so, with a row for each source, and then the blocks take its place', async () => {

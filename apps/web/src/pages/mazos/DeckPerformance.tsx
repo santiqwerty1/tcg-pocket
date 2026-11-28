@@ -2,8 +2,8 @@
  * Per-deck comparison (BRIEF M6, PLAN §3.6): own matches, tournament and simulation as three blocks, each under its
  * seal (M, T, B) with its own n, interval and record, «sin datos» where there is nothing, never one combined number,
  * and one legend for the three. Below, the breakdown of own matches by opponent, by who started and by revision.
+ * The way to log a match with the deck is the fixed row's («Registrar partida», `frame.ts`).
  */
-import { PlusIcon } from 'lucide-react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
@@ -15,7 +15,6 @@ import { ErrorState, LoadingRows } from '@/components/ListState'
 import { RateRows } from '@/components/RateSummary'
 import { Section } from '@/components/Section'
 import { TurnOrderCard } from '@/components/TurnOrderCard'
-import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatNumber } from '@/lib/format'
 import { SourceLane, SourceLanes } from './SourceLanes'
@@ -87,11 +86,9 @@ function TournamentLane({
 
 export function DeckPerformance({
   deckId,
-  archived,
   tournamentArchetypeId = null,
 }: {
   deckId: string
-  archived: boolean
   tournamentArchetypeId?: string | null
 }) {
   const comparison = useDeckComparison(deckId)
@@ -99,19 +96,7 @@ export function DeckPerformance({
   const games = stats.data?.overall.rate?.games ?? 0
 
   return (
-    <Section
-      title="Rendimiento"
-      action={
-        archived ? null : (
-          <Button size="sm" variant="outline" asChild>
-            <Link to={`/partidas?mazo=${encodeURIComponent(deckId)}`}>
-              <PlusIcon data-icon="inline-start" />
-              Registrar partida
-            </Link>
-          </Button>
-        )
-      }
-    >
+    <Section title="Rendimiento">
       {/* One row for each source that is coming. */}
       {comparison.isPending ? <LoadingRows rows={3} /> : null}
       {comparison.isError ? <ErrorState error={comparison.error} onRetry={() => comparison.refetch()} /> : null}

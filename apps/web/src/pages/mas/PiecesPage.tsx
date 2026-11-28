@@ -4,9 +4,11 @@
  *
  * Everything it shows is test data (pieces/fixtures.ts): it asks the API for nothing, and it says so on top and in
  * every section. It is also the address the screens suite measures the pieces at (e2e/piezas.spec.ts). It grows with
- * each piece and goes away when the last screen of the renewal is done.
+ * each piece and is removed when phase 4 of the renewal is done.
  */
+import { PlusIcon, RefreshCwIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { ROW_BOX, ROW_VIEWS, RowAction, VIEW_CHOSEN_IN_ROW, VIEW_TAB, VIEW_TAB_IN_ROW } from '@/app/RowAction'
 import { FigureValue } from '@/components/figures/FigureValue'
 import { IntervalBar, referenceText } from '@/components/figures/IntervalBar'
 import { MarkWords, NoData } from '@/components/figures/Marks'
@@ -37,6 +39,7 @@ import {
   RECORDS,
   SHARES,
   STALE,
+  UPDATED_DECK,
   WON_TWICE,
 } from './pieces/fixtures'
 
@@ -125,6 +128,43 @@ const ORIENTATIVE_BY: Record<SampleKind, string> = {
 /** The box of a cell of a table, where the small charts go. */
 const CELL = 'w-[116px]'
 
+/** The views of Pruebas and of Cartas, as the row draws them beside an action. */
+const PRUEBAS = ['Laboratorio', 'Simulación', 'Practicar'] as const
+const CARTAS = ['Sobres', 'Colección'] as const
+/** Where a drawing of a link would go: nowhere but this section (and a drawing takes no tap anyway). */
+const HERE = '#pieza-accion-de-la-fila'
+/** What a drawing of a button does when it is given something to do: nothing. */
+const NOTHING = () => undefined
+const SYNC_NAME = 'Sincronizar la colección con el juego'
+const SYNC_PENDING = 'Consultando ptcgpocket.gg…'
+
+/**
+ * A drawing of the fixed row, in the flow of the page: its box, views that are only a picture of them, and one look
+ * of its action, drawn by the component the row uses. As wide as the row of the frame (12 px from each side of the
+ * column, where the page keeps 16), so the views and the action have the room they have there. `inert`: nothing in
+ * it takes a tap or the focus, so it cannot be mistaken for the row of the screen, which is the frame's.
+ */
+function RowDrawing({ views, chosen, children }: { views?: readonly string[]; chosen?: string; children: ReactNode }) {
+  return (
+    <div inert data-drawing="fixed-row" className={cn(ROW_BOX, '-mx-1')}>
+      {views ? (
+        <div className={ROW_VIEWS}>
+          {views.map((view) => (
+            <span
+              key={view}
+              data-drawing="view"
+              className={cn(VIEW_TAB, VIEW_TAB_IN_ROW, view === chosen && VIEW_CHOSEN_IN_ROW)}
+            >
+              {view}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {children}
+    </div>
+  )
+}
+
 export function PiecesPage() {
   return (
     <div className="flex flex-col gap-6">
@@ -133,7 +173,7 @@ export function PiecesPage() {
         <p className="type-sub text-pretty text-foreground-2">
           Las piezas nuevas con las que se arman las pantallas, cada una en los estados que puede tomar. Van de la más
           chica a la más grande: el sello, las marcas, los mini-gráficos y la barra de intervalo, la cifra, el bloque de
-          una fuente con su leyenda y las tres fuentes de un mazo.
+          una fuente con su leyenda y las tres fuentes de un mazo. Al final, la acción de la fila fija.
         </p>
       </div>
 
@@ -457,6 +497,77 @@ export function PiecesPage() {
         <Whole name="Un mazo sin partidas, sin torneos y sin simulación">
           <SourceLanes columns={DECK_EMPTY} label="Tres fuentes de un mazo sin datos" />
         </Whole>
+      </Piece>
+
+      <Piece
+        id="accion-de-la-fila"
+        title="Acción de la fila"
+        what="La acción principal de una pantalla, en la fila fija sobre la barra: sola, a todo el ancho y con su texto; junto a las vistas, con su ícono solo o con su texto. Acá son dibujos: no se pueden tocar."
+      >
+        <div className="flex flex-col gap-4">
+          <Whole name="Sola, a todo el ancho, con su texto">
+            <RowDrawing>
+              <RowAction
+                kind="link"
+                to={HERE}
+                label="Registrar partida"
+                name="Registrar partida con este mazo"
+                icon={PlusIcon}
+                layout="full"
+              />
+            </RowDrawing>
+            <Words>Un enlace. Para el lector: «Registrar partida con este mazo».</Words>
+          </Whole>
+          <Whole name="Junto a tres vistas: el «+» solo, de 48 × 48">
+            <RowDrawing views={PRUEBAS} chosen="Simulación">
+              <RowAction kind="link" to={HERE} label="Nueva simulación" icon={PlusIcon} layout="icon" />
+            </RowDrawing>
+            <Words>Un enlace, con su nombre para el lector y para el puntero: «Nueva simulación».</Words>
+          </Whole>
+          <Whole name="Junto a dos vistas, con su texto">
+            <RowDrawing views={CARTAS} chosen="Colección">
+              <RowAction
+                kind="button"
+                onSelect={NOTHING}
+                label="Sincronizar"
+                name={SYNC_NAME}
+                icon={RefreshCwIcon}
+                layout="text"
+              />
+            </RowDrawing>
+            <Words>Un botón. Para el lector: «{SYNC_NAME}».</Words>
+          </Whole>
+          <Whole name="Un botón trabajando">
+            <RowDrawing views={CARTAS} chosen="Colección">
+              <RowAction
+                kind="button"
+                onSelect={NOTHING}
+                label="Sincronizar"
+                name={SYNC_NAME}
+                icon={RefreshCwIcon}
+                layout="text"
+                pending
+                pendingLabel={SYNC_PENDING}
+              />
+            </RowDrawing>
+            <Words>
+              La rueda gira en lugar del ícono, no toma toques y el lector dice «{SYNC_PENDING}». Cuando termina, abre
+              lo que trajo.
+            </Words>
+          </Whole>
+          <Whole name="Un botón que todavía no tiene qué hacer">
+            <RowDrawing views={CARTAS} chosen="Colección">
+              <RowAction kind="button" label="Sincronizar" name={SYNC_NAME} icon={RefreshCwIcon} layout="text" />
+            </RowDrawing>
+            <Words>Apagado: se ve, pero no hace nada hasta que la pantalla le dice qué hacer.</Words>
+          </Whole>
+          <Whole name="Con un nombre que sale de los datos, sin ícono">
+            <RowDrawing>
+              <RowAction kind="button" onSelect={NOTHING} label={`Actualizar el mazo #${UPDATED_DECK}`} layout="full" />
+            </RowDrawing>
+            <Words>Un botón sin ícono: el número del mazo lo pone la pantalla con lo que cargó.</Words>
+          </Whole>
+        </div>
       </Piece>
     </div>
   )
