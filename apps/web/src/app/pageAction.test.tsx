@@ -69,6 +69,26 @@ afterEach(() => {
   localStorage.clear()
 })
 
+/** A part of a page that declares the action and can be taken away, on the same screen. */
+function Part() {
+  const [shown, setShown] = useState(true)
+  return (
+    <>
+      {shown ? <Declares state={{ hidden: true }} text="La parte" /> : null}
+      <button type="button" onClick={() => setShown(false)}>
+        Quitar la parte
+      </button>
+    </>
+  )
+}
+
+/** The host as the shell holds it, at a path the test moves. */
+function Host({ path, expose }: { path: string; expose: (host: ReturnType<typeof usePageActionHost>) => void }) {
+  const host = usePageActionHost(path)
+  expose(host)
+  return <output aria-label="Declarado">{host.declared?.label ?? 'nada'}</output>
+}
+
 describe('what a page declares of the action of its route', () => {
   it('a button without a handler is drawn and says it is not available; with one, it calls the newest one', async () => {
     const seen = vi.fn()
@@ -250,17 +270,6 @@ describe('what a page declares of the action of its route', () => {
   })
 
   it('a part of a page that declared and goes away takes its declaration with it, on the same screen', () => {
-    function Part() {
-      const [shown, setShown] = useState(true)
-      return (
-        <>
-          {shown ? <Declares state={{ hidden: true }} text="La parte" /> : null}
-          <button type="button" onClick={() => setShown(false)}>
-            Quitar la parte
-          </button>
-        </>
-      )
-    }
     renderAt(
       '/mazos/5',
       shell([{ path: 'mazos/:deckId', element: <Part />, handle: { title: 'Mazo', back: '/mazos' } }]),
@@ -362,13 +371,6 @@ describe('before the screen is painted', () => {
 })
 
 describe('the shell’s side', () => {
-  /** The host as the shell holds it, at a path the test moves. */
-  function Host({ path, expose }: { path: string; expose: (host: ReturnType<typeof usePageActionHost>) => void }) {
-    const host = usePageActionHost(path)
-    expose(host)
-    return <output aria-label="Declarado">{host.declared?.label ?? 'nada'}</output>
-  }
-
   it('gives a declaration back only on its own path, and only its owner takes it away', () => {
     let host: ReturnType<typeof usePageActionHost> | null = null
     const expose = (value: ReturnType<typeof usePageActionHost>) => {

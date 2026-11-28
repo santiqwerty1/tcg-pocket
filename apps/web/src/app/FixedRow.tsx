@@ -136,7 +136,9 @@ export function rowActionProps(
   const layout: RowActionLayout = !besideViews ? 'full' : spec.display === 'text' ? 'text' : 'icon'
   const shared = {
     label: page?.label ?? spec.label,
-    name: page?.ariaLabel ?? spec.ariaLabel,
+    // A page that writes its own label and no name drops the route's name: the name must hold the words on screen
+    // (WCAG 2.5.3), and the route's longer one was written for the route's label.
+    name: page?.ariaLabel ?? (page?.label === undefined ? spec.ariaLabel : undefined),
     icon: spec.icon,
     layout,
     pending: page?.pending ?? false,

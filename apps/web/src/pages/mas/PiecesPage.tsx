@@ -4,7 +4,7 @@
  *
  * Everything it shows is test data (pieces/fixtures.ts): it asks the API for nothing, and it says so on top and in
  * every section. It is also the address the screens suite measures the pieces at (e2e/piezas.spec.ts). It grows with
- * each piece and goes away when the last screen of the renewal is done.
+ * each piece and is removed when phase 4 of the renewal is done.
  */
 import { PlusIcon, RefreshCwIcon } from 'lucide-react'
 import type { ReactNode } from 'react'

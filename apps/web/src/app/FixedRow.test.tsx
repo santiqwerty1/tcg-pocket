@@ -226,6 +226,19 @@ describe('the fixed row', () => {
     expect(select).toHaveBeenCalledTimes(1)
   })
 
+  it('a label from the data and no name drops the route’s longer name: the name keeps the words on screen', () => {
+    renderRow({
+      views: null,
+      viewsLabel: null,
+      action: at(DECK, { deckId: '1' }),
+      page: { label: 'Registrar con el mazo #1' },
+    })
+    // WCAG 2.5.3: the route's «Registrar partida con este mazo» was written for the route's label, not the page's.
+    const link = screen.getByRole('link', { name: 'Registrar con el mazo #1' })
+    expect(link).toHaveTextContent(/^Registrar con el mazo #1$/)
+    expect(link).not.toHaveAttribute('aria-label')
+  })
+
   it('without an icon there is no icon to stand alone: beside the views it keeps its text', () => {
     renderRow({ views: VIEWS, viewsLabel: 'Vistas', action: at(UPDATE), page: { onSelect: () => {} } })
     const update = screen.getByRole('button', { name: 'Actualizar el mazo' })

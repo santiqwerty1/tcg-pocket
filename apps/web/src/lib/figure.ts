@@ -43,6 +43,22 @@ export const SOURCE_NAME: Record<SourceKey, string> = {
   simulation: 'Bots',
 }
 
+/**
+ * The words that say a source in a name, without case or accents: «Torneo» says Torneos, «Simulación» and «Laboratorio:
+ * bots g2» say Bots. A name that holds one already tells a screen reader whose number it is; «Vos contra él» does not.
+ */
+const SOURCE_WORDS: Record<SourceKey, readonly string[]> = {
+  matches: ['partida'],
+  tournament: ['torneo'],
+  simulation: ['bot', 'simula'],
+}
+
+/** Whether a written name already says its source (then a seal beside it would say it twice). */
+export function nameSaysSource(name: string, source: SourceKey): boolean {
+  const plain = name.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+  return SOURCE_WORDS[source].some((word) => plain.includes(word))
+}
+
 /** What each kind of sample counts, as the legend and the marks say it: «menos de 30 listas». */
 export const SAMPLE_NOUN: Record<SampleKind, string> = {
   matches: 'partidas',

@@ -13,6 +13,7 @@ import {
   intervalText,
   NO_COVERAGE,
   NO_DATA,
+  nameSaysSource,
   orientativeKey,
   orientativeText,
   SAMPLE_NOUN,
@@ -354,6 +355,24 @@ describe('the names of the sources and of what a sample counts', () => {
     expect(SOURCE_NAME).toEqual({ matches: 'Mis partidas', tournament: 'Torneos', simulation: 'Bots' })
     // Three sources, three letters: no two share one.
     expect(new Set(Object.values(SOURCE_LETTER)).size).toBe(sources.length)
+  })
+
+  it('a name says its source when it holds one of its words, without case or accents', () => {
+    // The API's labels of the comparison, and the names the screens of phases 2–4 will write.
+    expect(nameSaysSource('Mis partidas', 'matches')).toBe(true)
+    expect(nameSaysSource('Torneo', 'tournament')).toBe(true)
+    expect(nameSaysSource('TORNEOS', 'tournament')).toBe(true)
+    expect(nameSaysSource('Simulación', 'simulation')).toBe(true)
+    expect(nameSaysSource('simulacion', 'simulation')).toBe(true)
+    expect(nameSaysSource('Laboratorio: bots g2', 'simulation')).toBe(true)
+    for (const source of ['matches', 'tournament', 'simulation'] as const) {
+      expect(nameSaysSource(SOURCE_NAME[source], source), source).toBe(true)
+    }
+    // A name without its source's word, or with another source's word, does not say it.
+    expect(nameSaysSource('Vos contra él', 'matches')).toBe(false)
+    expect(nameSaysSource('Torneo', 'simulation')).toBe(false)
+    expect(nameSaysSource('Mis partidas', 'tournament')).toBe(false)
+    expect(nameSaysSource('', 'matches')).toBe(false)
   })
 
   it('«orientativo» says what it counted, for each kind of sample of the API', () => {

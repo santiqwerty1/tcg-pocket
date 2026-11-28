@@ -10,8 +10,8 @@ import {
   figureSample,
   intervalText,
   type MaybeFigure,
+  nameSaysSource,
   orientativeText,
-  SOURCE_NAME,
   type SourceKey,
 } from '@/lib/figure'
 import { formatNumber } from '@/lib/format'
@@ -95,8 +95,9 @@ export function SourceBlock({
               : 'items-center gap-[6px] text-[14px] leading-[1.2] font-semibold',
           )}
         >
-          {/* The seal is silent only beside the very name of its source: any other name does not say whose it is. */}
-          <SourceSeal source={source} named={name !== SOURCE_NAME[source]} />
+          {/* The seal is silent beside a name that already says its source («Torneo», «Simulación»): a reader would
+              hear it twice. Beside any other name («Vos contra él») it says whose number it is. */}
+          <SourceSeal source={source} named={!nameSaysSource(name, source)} />
           <span className="min-w-0 wrap-anywhere">{name}</span>
         </span>
         {figure ? (

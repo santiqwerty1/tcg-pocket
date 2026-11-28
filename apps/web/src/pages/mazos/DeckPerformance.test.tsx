@@ -323,13 +323,15 @@ describe('the three sources of a deck', () => {
     ).toEqual(['51,1 %', '12,5 %', '50 %'])
   })
 
-  it('a seal is silent beside the very name of its source, and says its source beside any other name', async () => {
+  it('the seals are silent beside the API’s names, which already say their source: a reader hears each source once', async () => {
     show({ 'GET /api/decks/40/comparison': comparison(MINE, TOURNAMENT, BOTS) })
     const region = await sources()
     const seal = (source: Column['source']) => block(region, source).querySelector('[data-slot="source-seal"]')
-    expect(seal('matches')).toHaveAttribute('aria-hidden', 'true')
-    expect(seal('tournament')).toHaveAccessibleName('Torneos')
-    expect(seal('simulation')).toHaveAccessibleName('Bots')
+    // «Mis partidas», «Torneo» and «Simulación»: no «Torneos, Torneo» nor «Bots, Simulación» (review of #211).
+    for (const source of ['matches', 'tournament', 'simulation'] as const) {
+      expect(seal(source), source).toHaveAttribute('aria-hidden', 'true')
+    }
+    expect(within(region).queryAllByRole('img', { name: /^(Mis partidas|Torneos|Bots)$/ })).toEqual([])
   })
 
   it('one legend for the three: each seal, what «orientativo» counted here, and which interval is written', async () => {
